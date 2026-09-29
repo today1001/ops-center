@@ -48,6 +48,7 @@ func Run() {
 		auth.POST("/servers", CreateServerHandler)
 		auth.POST("/servers/batch", CreateServersBatchHandler)
 		auth.GET("/servers/:id", GetServerHandler)
+		auth.GET("/servers/:id/password", GetAdminPassword)
 		auth.PUT("/servers/:id", UpdateServerHandler)
 		auth.DELETE("/servers/:id", DeleteServerHandler)
 		auth.POST("/servers/:id/test", TestServerConnectionHandler)
@@ -93,9 +94,11 @@ func Run() {
 		// 工具模块
 		auth.GET("/tools/web-services", GetWebServicesHandler)
 		auth.POST("/tools/web/session", CreateWebSessionHandler)
+		auth.GET("/tools/web/sessions", ListWebSessionsHandler)
 
 		// SSH终端
 		auth.POST("/ssh/session", CreateSSHSessionHandler)
+		auth.POST("/ssh/shadow", CreateSSHShadowHandler)
 
 		// RDP远程桌面
 		auth.POST("/tools/rdp/session", CreateRDPSessionHandler)
@@ -108,6 +111,9 @@ func Run() {
 	// 网页代理（受会话令牌保护，无需登录令牌，供iframe使用）
 	r.GET("/api/tools/web", ProxyWebHandler)
 	r.POST("/api/tools/web", ProxyWebPostHandler)
+	// 网页会话单控制器锁（供被代理页面调用，无需登录令牌）
+	r.GET("/api/tools/web/lock", WebLockStatusHandler)
+	r.POST("/api/tools/web/lock", WebLockHandler)
 	// ExtJS API 代理（转发 /api2/json 请求到目标服务器）
 	r.GET("/api/tools/webproxy-api", ProxyAPIHandler)
 	// 全路径反向代理：/px/{tk}/path → target/path（所有请求统一走代理）
@@ -123,6 +129,7 @@ func Run() {
 		r.Static("/assets", filepath.Join(frontendDir, "assets"))
 		// Guacamole 客户端库等第三方静态资源
 		r.Static("/vendor", filepath.Join(frontendDir, "vendor"))
+		r.StaticFile("/rdpguac.html", filepath.Join(frontendDir, "rdpguac.html"))
 		r.StaticFile("/rdptest.html", filepath.Join(frontendDir, "rdptest.html"))
 		r.StaticFile("/rdptest2.html", filepath.Join(frontendDir, "rdptest2.html"))
 		r.StaticFile("/jsload.html", filepath.Join(frontendDir, "jsload.html"))

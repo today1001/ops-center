@@ -37,6 +37,7 @@ type webSession struct {
 	Host    string
 	BaseURL string
 	Lang    string // PVE 语言偏好 (zh_CN, en, etc.)
+	CreatedAt time.Time // 会话创建时间
 	Jar     http.CookieJar
 	Client  *http.Client
 	// PVE 登录后服务器端存储的认证信息（浏览器端无法存储 Secure cookie）
@@ -68,7 +69,7 @@ func CreateWebSession(user, pass, target, lang string) (string, error) {
 	tk := genToken()
 	webSessionsMu.Lock()
 	webSessions[tk] = &webSession{
-		User: user, Pass: pass, Host: u.Host, Lang: lang,
+		User: user, Pass: pass, Host: u.Host, Lang: lang, CreatedAt: time.Now(),
 		BaseURL: fmt.Sprintf("%s://%s", u.Scheme, u.Host),
 		Jar: jar, Client: client,
 	}
@@ -643,4 +644,24 @@ func AutofillScript(user, pass string) string {
   }
 })();
 </script>`, string(u), string(p))
+}
+
+
+// WebSessionInfo 会话摘要（供其他用户观看/加入同一会话）
+type WebSessionInfo struct {
+	TK        string    `json:"tk"`
+	Host      string    `json:"host"`
+	BaseURL   string    `json:"base_url"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ListWebSessions 返回当前所有网页代理会话摘要
+func ListWebSessions() []WebSessionInfo {
+	webSessionsMu.RLock()
+	defer webSessionsMu.RUnlock()
+	list := make([]WebSessionInfo, 0, len(webSessions))
+	for tk, s := range webSessions {
+		list = append(list, WebSessionInfo{TK: tk, Host: s.Host, BaseURL: s.BaseURL, CreatedAt: s.CreatedAt})
+	}
+	return list
 }

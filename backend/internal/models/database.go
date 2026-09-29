@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 
+	"ops-center/internal/crypto"
+
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -448,6 +450,7 @@ func GetServersWithCreds(userID int) ([]Server, error) {
 		if err != nil {
 			return nil, err
 		}
+		s.Password = DecryptPassword(s.Password)
 		servers = append(servers, s)
 	}
 
@@ -473,6 +476,7 @@ func GetServerByID(id int) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.Password = DecryptPassword(s.Password)
 	return s, nil
 }
 
@@ -480,7 +484,7 @@ func GetServerByID(id int) (*Server, error) {
 func CreateServer(server *Server) error {
 	result, err := db.Exec(
 		"INSERT INTO servers (name, ip, port, username, password, private_key, os, status, auth_type, tags, group_name, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		server.Name, server.IP, server.Port, server.Username, server.Password, server.PrivateKey, server.OS, server.Status, server.AuthType, server.Tags, server.GroupName, server.CreatedBy,
+		server.Name, server.IP, server.Port, server.Username, EncryptPassword(server.Password), server.PrivateKey, server.OS, server.Status, server.AuthType, server.Tags, server.GroupName, server.CreatedBy,
 	)
 	if err != nil {
 		return err
@@ -499,7 +503,7 @@ func CreateServer(server *Server) error {
 func UpdateServer(server *Server) error {
 	_, err := db.Exec(
 		"UPDATE servers SET name = ?, ip = ?, port = ?, username = ?, password = ?, private_key = ?, os = ?, status = ?, auth_type = ?, tags = ?, group_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-		server.Name, server.IP, server.Port, server.Username, server.Password, server.PrivateKey, server.OS, server.Status, server.AuthType, server.Tags, server.GroupName, server.ID,
+		server.Name, server.IP, server.Port, server.Username, EncryptPassword(server.Password), server.PrivateKey, server.OS, server.Status, server.AuthType, server.Tags, server.GroupName, server.ID,
 	)
 	return err
 }
@@ -771,4 +775,41 @@ func bottom(sorted []ServerUsage, hasData func(ServerUsage) bool) []ServerUsage 
 		}
 	}
 	return result
+}
+
+
+// EncryptPassword 加密密码后存储（空密码直接返回空）
+func EncryptPassword(password string) string {
+	if password == "" {
+		return ""
+	}
+	encrypted, err := crypto.Encrypt(password)
+	if err != nil {
+		log.Printf("密码加密失败: %v", err)
+		return ""
+	}
+	return encrypted
+}
+
+// DecryptPassword 解密数据库中的密码（兼容历史明文）
+func DecryptPassword(encrypted string) string {
+	if encrypted == "" {
+		return ""
+	}
+	decrypted, err := crypto.Decrypt(encrypted)
+	if err != nil {
+		log.Printf("密码解密失败: %v", err)
+		return encrypted
+	}
+	return decrypted
+}
+
+// GetServerDecryptedPassword 返回服务器的明文密码（仅供管理员验证后使用）
+func GetServerDecryptedPassword(id int) (string, error) {
+	var password string
+	err := db.QueryRow("SELECT password FROM servers WHERE id = ?", id).Scan(&password)
+	if err != nil {
+		return "", err
+	}
+	return DecryptPassword(password), nil
 }

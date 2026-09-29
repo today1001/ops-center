@@ -67,7 +67,7 @@ func scanServiceStats(s *ServerService, totalChecks, successChecks int, lastResp
 func CreateService(s *ServerService) error {
 	result, err := db.Exec(
 		"INSERT INTO server_services (server_id, name, access_method, address, port, username, password, status, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		s.ServerID, s.Name, s.AccessMethod, s.Address, s.Port, s.Username, s.Password, s.Status, s.Description,
+		s.ServerID, s.Name, s.AccessMethod, s.Address, s.Port, s.Username, EncryptPassword(s.Password), s.Status, s.Description,
 	)
 	if err != nil {
 		return err
@@ -103,6 +103,7 @@ func GetServicesByServer(serverID int) ([]ServerService, error) {
 		if err := rows.Scan(&s.ID, &s.ServerID, &s.Name, &s.AccessMethod, &s.Address, &s.Port, &s.Username, &s.Password, &s.Status, &s.Description, &s.CreatedAt, &s.UpdatedAt, &totalChecks, &successChecks, &lastResponse, &lastVersion, &lastChecked); err != nil {
 			return nil, err
 		}
+		s.Password = DecryptPassword(s.Password)
 		scanServiceStats(&s, totalChecks, successChecks, lastResponse, lastVersion, lastChecked)
 		services = append(services, s)
 	}
@@ -135,6 +136,7 @@ func GetWebServices() ([]ServerService, error) {
 		if err := rows.Scan(&s.ID, &s.ServerID, &s.Name, &s.AccessMethod, &s.Address, &s.Port, &s.Username, &s.Password, &s.Status, &s.Description, &s.CreatedAt, &s.UpdatedAt, &s.ServerName, &s.ServerIP, &totalChecks, &successChecks, &lastResponse, &lastVersion, &lastChecked); err != nil {
 			return nil, err
 		}
+		s.Password = DecryptPassword(s.Password)
 		scanServiceStats(&s, totalChecks, successChecks, lastResponse, lastVersion, lastChecked)
 		services = append(services, s)
 	}
@@ -151,6 +153,7 @@ func GetServiceByID(id int) (*ServerService, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.Password = DecryptPassword(s.Password)
 	return s, nil
 }
 
@@ -158,7 +161,7 @@ func GetServiceByID(id int) (*ServerService, error) {
 func UpdateService(s *ServerService) error {
 	_, err := db.Exec(
 		"UPDATE server_services SET name = ?, access_method = ?, address = ?, port = ?, username = ?, password = ?, status = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-		s.Name, s.AccessMethod, s.Address, s.Port, s.Username, s.Password, s.Status, s.Description, s.ID,
+		s.Name, s.AccessMethod, s.Address, s.Port, s.Username, EncryptPassword(s.Password), s.Status, s.Description, s.ID,
 	)
 	return err
 }

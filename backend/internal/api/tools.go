@@ -312,6 +312,9 @@ func ReverseProxyHandler(c *gin.Context) {
 </script>`, proxyPrefix)
 		html = strings.Replace(html, "<head>", "<head>"+interceptScript, 1)
 
+		// 单控制器（观看/演示模式）：同一会话同一时间仅一人可操作
+		html = strings.Replace(html, "<head>", "<head>"+webControlScript(tk), 1)
+
 		// 替换 ExtJS locale 文件为用户选择的语言
 		if sess.Lang != "" && sess.Lang != "en" {
 			localeFile := fmt.Sprintf("locale-%s.js", sess.Lang)
@@ -385,4 +388,10 @@ func ReverseProxyHandler(c *gin.Context) {
 	c.Writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
 	c.Writer.WriteHeader(resp.StatusCode)
 	c.Writer.Write(body)
+}
+
+
+// ListWebSessionsHandler 获取进行中的网页代理会话列表（供其他用户观看/加入）
+func ListWebSessionsHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, services.ListWebSessions())
 }

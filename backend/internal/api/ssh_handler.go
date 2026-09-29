@@ -31,6 +31,8 @@ type sshSession struct {
 	stdin    chan []byte
 	done     chan struct{}
 	once     sync.Once
+	viewerMu sync.Mutex
+	viewers  map[string]*websocket.Conn
 }
 
 var (
@@ -47,6 +49,7 @@ func createSSHSession(token, host string, port int, user, pass string) *sshSessi
 		pass:  pass,
 		stdin: make(chan []byte, 64),
 		done:  make(chan struct{}),
+		viewers: make(map[string]*websocket.Conn),
 	}
 	sshSessionsMu.Lock()
 	sshSessions[token] = s
@@ -97,6 +100,14 @@ func CreateSSHSessionHandler(c *gin.Context) {
 // SSHWebSocketHandler WebSocket SSH终端
 func SSHWebSocketHandler(c *gin.Context) {
 	tk := c.Param("tk")
+	// 观看者（影子模式）令牌
+	sshViewerMu.Lock()
+	opToken, isViewer := sshViewers[tk]
+	sshViewerMu.Unlock()
+	if isViewer {
+		sshHandleViewer(c, tk, opToken)
+		return
+	}
 	sess := getSSHSession(tk)
 	if sess == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "无效的SSH会话"})
@@ -240,6 +251,11 @@ func SSHWebSocketHandler(c *gin.Context) {
 			n, err := stdoutPipe.Read(buf)
 			if n > 0 {
 				ws.WriteMessage(websocket.BinaryMessage, buf[:n])
+				sess.viewerMu.Lock()
+				for _, vws := range sess.viewers {
+					_ = vws.WriteMessage(websocket.BinaryMessage, buf[:n])
+				}
+				sess.viewerMu.Unlock()
 			}
 			if err != nil {
 				log.Printf("[SSH-WS] stdout读取结束: %v", err)
@@ -311,4 +327,113 @@ func generateToken() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+
+// ===================== SSH 影子模式（观看） =====================
+
+var (
+	sshViewerMu sync.Mutex
+	sshViewers  = make(map[string]string) // 观看者token -> 操作员token
+)
+
+func removeSSHViewerToken(tk string) {
+	sshViewerMu.Lock()
+	delete(sshViewers, tk)
+	sshViewerMu.Unlock()
+}
+
+// CreateSSHShadowHandler 加入现有SSH会话（观看模式，只读）
+func CreateSSHShadowHandler(c *gin.Context) {
+	var req struct {
+		Host string `json:"host"`
+		Port int    `json:"port"`
+		User string `json:"user"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Host == "" || req.User == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少必要参数"})
+		return
+	}
+	if req.Port == 0 {
+		req.Port = 22
+	}
+	opToken := ""
+	sshSessionsMu.Lock()
+	for tk, s := range sshSessions {
+		if s.host == req.Host && s.port == req.Port && s.user == req.User {
+			opToken = tk
+			break
+		}
+	}
+	sshSessionsMu.Unlock()
+	if opToken == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "未找到进行中的SSH会话，请先由操作员通过平台连接后再使用影子模式"})
+		return
+	}
+	vt := generateToken()
+	sshViewerMu.Lock()
+	sshViewers[vt] = opToken
+	sshViewerMu.Unlock()
+	c.JSON(http.StatusOK, gin.H{
+		"token": vt,
+		"role":  "viewer",
+		"host":  req.Host,
+		"port":  req.Port,
+		"user":  req.User,
+	})
+}
+
+// sshHandleViewer 观看者 WebSocket：接收操作员会话输出，忽略其输入
+func sshHandleViewer(c *gin.Context, viewerToken, opToken string) {
+	op := getSSHSession(opToken)
+	if op == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "操作会话不存在"})
+		return
+	}
+	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	op.viewerMu.Lock()
+	op.viewers[viewerToken] = ws
+	op.viewerMu.Unlock()
+
+	ws.SetReadDeadline(time.Now().Add(90 * time.Second))
+	ws.SetPongHandler(func(string) error {
+		ws.SetReadDeadline(time.Now().Add(90 * time.Second))
+		return nil
+	})
+
+	done := make(chan struct{})
+	defer func() {
+		close(done)
+		op.viewerMu.Lock()
+		delete(op.viewers, viewerToken)
+		op.viewerMu.Unlock()
+		removeSSHViewerToken(viewerToken)
+		ws.Close()
+	}()
+
+	// 心跳
+	go func() {
+		t := time.NewTicker(20 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				if err := ws.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
+			}
+		}
+	}()
+
+	// 只读：接收并丢弃输入（不转发给操作员会话）
+	for {
+		if _, _, err := ws.ReadMessage(); err != nil {
+			return
+		}
+	}
 }

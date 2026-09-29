@@ -8,6 +8,7 @@ import (
 
 	"ops-center/internal/models"
 	"ops-center/internal/services"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // GetServersHandler 获取服务器列表
@@ -94,6 +95,11 @@ func CreateServerHandler(c *gin.Context) {
 		return
 	}
 
+	// 根据操作系统类型自动创建默认服务（Linux→SSH，Windows→RDP）
+	go func() {
+		createDefaultService(&server)
+	}()
+
 	// 创建后立即测试连接并采集信息
 	go func() {
 		services.TestAndCollectServerInfo(&server)
@@ -134,7 +140,13 @@ func CreateServersBatchHandler(c *gin.Context) {
 		}
 		
 		created = append(created, server)
-		
+
+		// 自动创建默认服务（Linux→SSH，Windows→RDP）
+		sv := server
+		go func() {
+			createDefaultService(&sv)
+		}()
+
 		// 异步采集信息
 		go func(s models.Server) {
 			services.TestAndCollectServerInfo(&s)
@@ -302,4 +314,83 @@ func RefreshAllServersHandler(c *gin.Context) {
 	}()
 
 	c.JSON(http.StatusOK, gin.H{"message": "开始刷新所有服务器", "total": len(servers)})
+}
+
+
+// GetAdminPassword 管理员输入本人密码验证身份后，返回指定服务器的明文密码
+func GetAdminPassword(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的服务器ID"})
+		return
+	}
+
+	role, _ := c.Get("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "仅管理员可查看明文密码"})
+		return
+	}
+
+	userID, _ := c.Get("userID")
+	var req struct {
+		Password string `json:"password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请输入您的登录密码进行验证"})
+		return
+	}
+
+	user, err := models.GetUserByID(userID.(int))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户不存在"})
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "验证密码错误"})
+		return
+	}
+
+	password, err := models.GetServerDecryptedPassword(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取密码失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"password": password})
+}
+
+// createDefaultService 根据操作系统类型创建默认服务
+func createDefaultService(server *models.Server) {
+	var service models.ServerService
+	service.ServerID = server.ID
+	service.Address = server.IP
+
+	switch server.OS {
+	case "Windows":
+		service.Name = "远程桌面"
+		service.AccessMethod = "RDP"
+		service.Port = 3389
+		service.Username = server.Username
+		service.Password = server.Password
+		service.Description = "Windows远程桌面服务"
+	case "Linux":
+		service.Name = "SSH"
+		service.AccessMethod = "SSH"
+		service.Port = 22
+		service.Username = server.Username
+		service.Password = server.Password
+		service.Description = "Linux SSH服务"
+	default:
+		service.Name = "SSH"
+		service.AccessMethod = "SSH"
+		service.Port = 22
+		service.Username = server.Username
+		service.Password = server.Password
+		service.Description = "默认SSH服务"
+	}
+
+	service.Status = "running"
+
+	if err := models.CreateService(&service); err != nil {
+		println("创建默认服务失败:", err.Error())
+	}
 }
