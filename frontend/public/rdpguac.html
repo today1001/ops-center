@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Guacamole RDP</title>
+<script src="/vendor/guacamole/guacamole-common.js"></script>
+<style>
+body { margin: 0; background: #000; color: #eee; font-family: monospace; overflow: hidden; }
+#status { position: fixed; top: 0; left: 0; right: 0; padding: 4px 8px; font-size: 12px; background: rgba(0,0,0,0.85); border-bottom: 1px solid #555; z-index: 10; white-space: pre; }
+#display { position: absolute; top: 24px; left: 0; right: 0; bottom: 0; background: #000; overflow: auto; }
+/* 让 guac display 内部 canvas 有可见尺寸 */
+.guacamole-display, .guac-canvas {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+</style>
+</head>
+<body>
+<div id="status">init...</div>
+<div id="display"></div>
+<script>
+(function() {
+  var statusEl = document.getElementById('status');
+  function log(s) {
+    var t = new Date().toISOString().substring(11, 19) + ' ' + s;
+    statusEl.textContent = t;
+    if (window.console) console.log(t);
+  }
+  window.addEventListener('error', function(e) {
+    log('ERROR: ' + (e.message || e) + ' @ ' + (e.filename||'') + ':' + (e.lineno||''));
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    log('PROMISE: ' + (e.reason && (e.reason.message||e.reason) || e));
+  });
+
+  var params = new URLSearchParams(window.location.search);
+  var host = params.get('host') || '';
+  var port = parseInt(params.get('port') || '3389', 10);
+  var user = params.get('user') || '';
+  var pass = params.get('password') || '';
+  var screenW = parseInt(params.get('width') || '1280', 10);
+  var screenH = parseInt(params.get('height') || '800', 10);
+  // 后端直连参数：gtok=guacamole认证token cid=连接ID stok=影子共享令牌 gtype=c|s
+  var gtok = params.get('gtok') || '';
+  var cid = params.get('cid') || '';
+  var stok = params.get('stok') || '';
+  var gtype = params.get('gtype') || 'c';
+
+  log('type=Guac host=' + host + ' port=' + port + ' user=' + user + ' size=' + screenW + 'x' + screenH + ' shadow=' + (gtype === 's'));
+
+  if (typeof Guacamole === 'undefined') {
+    log('ERROR: guacamole-common.js NOT loaded');
+    return;
+  }
+  log('Guacamole ready');
+
+  // 使用给定的会话信息建立 Guacamole 连接
+  function startSession(s) {
+    var tunnelURL = 'ws://' + window.location.host + s.websocket_path;
+    log('tunnel ' + tunnelURL + ' type=' + (s.guac_type || 'c'));
+
+    var tunnel = new Guacamole.WebSocketTunnel(tunnelURL);
+    var client = new Guacamole.Client(tunnel);
+
+    tunnel.onstatechange = function(state) { log('tunnel=' + state); };
+    tunnel.onerror = function(e) { log('tunnel-err'); };
+
+    client.onstatechange = function(state) { log('client=' + state); };
+    client.onerror = function(e) { log('client-err'); };
+
+    var display = client.getDisplay();
+    var dispEl = display.getElement();
+
+    // 在挂到 DOM 之前先初始化 display 默认尺寸
+    display.scale(screenW / 1280);
+
+    document.getElementById('display').innerHTML = '';
+    document.getElementById('display').appendChild(dispEl);
+
+    // 监听 container 大小变化，让 display 跟着缩放
+    function resize() {
+      var c = document.getElementById('display');
+      var w = c.clientWidth, h = c.clientHeight;
+      // 用 viewport 高宽比计算缩放
+      var sx = w / screenW, sy = h / screenH;
+      var sc = Math.min(sx, sy);
+      display.scale(sc);
+      log('resize ' + Math.round(w) + 'x' + Math.round(h) + ' scale=' + sc.toFixed(2));
+    }
+    window.addEventListener('resize', resize);
+    setTimeout(resize, 100);
+    setTimeout(resize, 500);
+
+    var mouse = new Guacamole.Mouse(dispEl);
+    mouse.onmousemove = function(state) { client.sendMouseState(state, true); };
+    mouse.onmousedown = function(state) { client.sendMouseState(state, true); };
+    mouse.onmouseup   = function(state) { client.sendMouseState(state, true); };
+
+    var kb = new Guacamole.Keyboard(dispEl);
+    kb.onkeydown = function(k) { client.sendKeyEvent(1, k); };
+    kb.onkeyup   = function(k) { client.sendKeyEvent(0, k); };
+
+    var connectParams = new URLSearchParams({
+      token: s.token,
+      GUAC_DATA_SOURCE: s.data_source || 'postgresql',
+      GUAC_TYPE: s.guac_type || 'c',
+      GUAC_ID: (s.guac_type === 's') ? s.share_token : s.connection_id,
+      GUAC_WIDTH: String(screenW),
+      GUAC_HEIGHT: String(screenH),
+      GUAC_DPI: '96',
+      GUAC_TIMEZONE: 'Asia/Shanghai'
+    });
+    client.connect(connectParams.toString());
+    log('connect() called id=' + ((s.guac_type === 's') ? s.share_token : s.connection_id));
+  }
+
+  if (gtok && (cid || stok)) {
+    // 后端已创建好会话（普通连接或影子共享），直接使用
+    startSession({
+      token: gtok,
+      connection_id: cid,
+      share_token: stok,
+      guac_type: gtype,
+      data_source: 'postgresql',
+      websocket_path: '/guac/websocket-tunnel'
+    });
+  } else {
+    // 兼容旧流程：自行登录并创建会话
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'admin123' })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(lt) {
+      if (lt.error) throw new Error('登录失败: ' + lt.error);
+      var token = lt.token;
+      log('login OK');
+      return fetch('/api/tools/rdp/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ host: host, port: port, username: user, password: pass })
+      }).then(function(r) { return r.json(); })
+        .then(function(s) {
+          if (!s || s.error) throw new Error(s && s.error || '会话失败');
+          log('session OK conn=' + s.connection_id);
+          return { s: s, token: token };
+        });
+    })
+    .then(function(obj) {
+      if (!obj) return;
+      startSession({
+        token: obj.s.token,
+        connection_id: obj.s.connection_id,
+        share_token: obj.s.share_token || '',
+        guac_type: obj.s.guac_type || 'c',
+        data_source: obj.s.data_source || 'postgresql',
+        websocket_path: obj.s.websocket_path || '/guac/websocket-tunnel'
+      });
+    })
+    .catch(function(e) {
+      log('ERR: ' + (e && e.message || e));
+    });
+  }
+})();
+</script>
+</body>
+</html>
