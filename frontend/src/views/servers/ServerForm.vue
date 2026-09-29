@@ -135,6 +135,22 @@
           <div class="form-tip">用于服务器列表分组展示，例如：集群、数据库、宿主机</div>
         </el-form-item>
 
+        <!-- 虚拟网络 -->
+        <el-form-item label="虚拟网络">
+          <el-select v-model="form.virtual_network" placeholder="不加入" clearable style="width: 100%;">
+            <el-option v-for="n in vnetOptions" :key="n.name" :label="n.name + (n.subnet ? '（' + n.subnet + '）' : '')" :value="n.name" />
+          </el-select>
+          <div class="form-tip">加入后按虚拟标识自动跟踪虚拟IP（IP变化自动更新，指向它的服务联动）</div>
+        </el-form-item>
+        <el-form-item v-if="form.virtual_network" label="虚拟标识">
+          <el-input v-model="form.virtual_identifier" :placeholder="form.name || '默认使用服务器名称'" />
+          <div class="form-tip">唯一标识，需与 EasyTier 客户端上报的主机名一致；留空默认用服务器名称</div>
+        </el-form-item>
+        <el-form-item v-if="form.virtual_network && form.virtual_ip" label="当前虚拟IP">
+          <el-input v-model="form.virtual_ip" readonly />
+          <div class="form-tip">由虚拟网络同步自动维护，无需手动修改</div>
+        </el-form-item>
+
         <!-- 预览（IP段模式） -->
         <el-form-item v-if="addMode === 'range' && previewIPs.length > 0" label="预览">
           <div class="ip-preview">
@@ -179,7 +195,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { serverAPI, groupAPI } from '../../api'
+import { serverAPI, groupAPI, vnetAPI } from '../../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -204,10 +220,23 @@ const form = reactive({
   namePrefix: '',
   ipRange: '',
   pasteText: '',
-  group_name: ''
+  group_name: '',
+  virtual_network: '',
+  virtual_identifier: '',
+  virtual_ip: ''
 })
 
 const groupOptions = ref([])
+const vnetOptions = ref([])
+
+// 加载虚拟网络源
+const loadVnetNetworks = async () => {
+  try {
+    vnetOptions.value = await vnetAPI.getNetworks()
+  } catch (e) {
+    // 忽略
+  }
+}
 
 // 加载已有分组供选择
 const loadGroupOptions = async () => {
@@ -324,6 +353,7 @@ const submitLabel = computed(() => {
 
 onMounted(async () => {
   loadGroupOptions()
+  loadVnetNetworks()
   if (isEdit.value) {
     loading.value = true
     try {

@@ -43,6 +43,11 @@ func InitDB() error {
 		return err
 	}
 
+	// 虚拟网络表（网络源 + 服务器虚拟信息）
+	if err := CreateVnetTables(); err != nil {
+		return err
+	}
+
 	return nil
 }
 

@@ -55,6 +55,12 @@
                 </template>
               </el-table-column>
               <el-table-column prop="ip" label="IP地址" width="150" />
+              <el-table-column label="虚拟IP" width="140">
+                <template #default="{ row }">
+                  <span v-if="row.virtual_ip" :style="{ color: row.virtual_online ? '#67C23A' : '#F56C6C' }">{{ row.virtual_ip }}</span>
+                  <span v-else style="color: #c0c4cc;">-</span>
+                </template>
+              </el-table-column>
               <el-table-column prop="port" label="端口" width="80" />
               <el-table-column prop="username" label="用户名" width="120" />
               <el-table-column label="连接" width="80">

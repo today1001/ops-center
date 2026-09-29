@@ -52,7 +52,8 @@
     "sshAccess": "SSH终端",
     "rdpAccess": "远程桌面",
     "settings": "系统设置",
-    "tools": "工具"
+    "tools": "工具",
+    "vnet": "虚拟网络"
   },
   "dashboard": {
     "title": "仪表盘",

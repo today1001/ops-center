@@ -31,6 +31,7 @@
                   <div class="server-info">
                     <div class="server-name">{{ s.name }}</div>
                     <div class="server-ip">{{ s.ip }}</div>
+                    <div v-if="s.virtual_ip" class="server-vip" :style="{ color: s.virtual_online ? '#67C23A' : '#F56C6C' }">虚拟 {{ s.virtual_ip }}</div>
                   </div>
                 </div>
               </div>
@@ -276,7 +277,11 @@
             <template #prepend v-if="form.access_method === 'HTTP' || form.access_method === 'HTTPS'">
               {{ form.access_method.toLowerCase() }}://
             </template>
+            <template #append v-if="selectedServer && selectedServer.virtual_ip">
+              <el-button @click="fillVirtualIP">用虚拟IP</el-button>
+            </template>
           </el-input>
+          <div v-if="selectedServer && selectedServer.virtual_ip" class="form-tip">该服务器虚拟IP：{{ selectedServer.virtual_ip }}（自动跟随变化）</div>
         </el-form-item>
         <el-form-item label="端口">
           <el-input-number v-model="form.port" :min="0" :max="65535" placeholder="0 表示不填" />
@@ -617,8 +622,15 @@ const openWebAccess = (svc) => {
   webService.value = { ...svc, server_ip: selectedServer.value ? selectedServer.value.ip : svc.server_ip }
 }
 
+// 服务地址快捷填充虚拟IP
+const fillVirtualIP = () => {
+  if (selectedServer.value && selectedServer.value.virtual_ip) {
+    form.address = selectedServer.value.virtual_ip
+  }
+}
+
 const openSshAccess = async (svc) => {
-  const ip = selectedServer.value ? selectedServer.value.ip : svc.server_ip
+  const ip = svc.address || (selectedServer.value ? selectedServer.value.ip : svc.server_ip)
   const port = svc.port || 22
   const user = svc.username || ''
   const pass = svc.password || ''
@@ -641,7 +653,7 @@ const closeSsh = () => {
 }
 
 const openSshShadow = async (svc) => {
-  const ip = selectedServer.value ? selectedServer.value.ip : svc.server_ip
+  const ip = svc.address || (selectedServer.value ? selectedServer.value.ip : svc.server_ip)
   const port = svc.port || 22
   const user = svc.username || ''
   if (!user) {
@@ -658,7 +670,7 @@ const openSshShadow = async (svc) => {
 }
 
 const openRdpAccess = async (svc, shadow = false) => {
-  const ip = selectedServer.value ? selectedServer.value.ip : svc.server_ip
+  const ip = svc.address || (selectedServer.value ? selectedServer.value.ip : svc.server_ip)
   const username = svc.username || ''
   if (!username) {
     ElMessage.warning('该服务未配置RDP用户名')
@@ -778,6 +790,11 @@ onMounted(() => {
 .server-ip {
   font-size: 12px;
   color: #909399;
+}
+
+.server-vip {
+  font-size: 11px;
+  margin-top: 2px;
 }
 
 .svc-name {

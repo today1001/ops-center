@@ -25,6 +25,17 @@ func GetServersHandler(c *gin.Context) {
 		servers = []models.Server{}
 	}
 
+	// 填充虚拟网络信息
+	vmap, _ := models.GetAllServerVirtual()
+	for i := range servers {
+		if v, ok := vmap[servers[i].ID]; ok {
+			servers[i].VirtualNetwork = v.Network
+			servers[i].VirtualIdentifier = v.Identifier
+			servers[i].VirtualIP = v.IP
+			servers[i].VirtualOnline = v.Online
+		}
+	}
+
 	c.JSON(http.StatusOK, servers)
 }
 
@@ -50,6 +61,14 @@ func GetServerHandler(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "服务器不存在"})
 		return
+	}
+
+	// 填充虚拟网络信息
+	if v, err := models.GetServerVirtual(id); err == nil {
+		server.VirtualNetwork = v.Network
+		server.VirtualIdentifier = v.Identifier
+		server.VirtualIP = v.IP
+		server.VirtualOnline = v.Online
 	}
 
 	c.JSON(http.StatusOK, server)
@@ -94,6 +113,9 @@ func CreateServerHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建服务器失败"})
 		return
 	}
+
+	// 保存虚拟网络关联
+	saveServerVirtual(&server)
 
 	// 根据操作系统类型自动创建默认服务（Linux→SSH，Windows→RDP）
 	go func() {
@@ -198,6 +220,9 @@ func UpdateServerHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新服务器失败"})
 		return
 	}
+
+	// 保存虚拟网络关联（选择"不加入"时清除）
+	saveServerVirtual(&server)
 
 	c.JSON(http.StatusOK, server)
 }
@@ -393,4 +418,30 @@ func createDefaultService(server *models.Server) {
 	if err := models.CreateService(&service); err != nil {
 		println("创建默认服务失败:", err.Error())
 	}
+}
+
+// saveServerVirtual 保存服务器的虚拟网络关联
+func saveServerVirtual(server *models.Server) {
+	if server.VirtualNetwork == "" {
+		models.DeleteServerVirtual(server.ID)
+		return
+	}
+	identifier := server.VirtualIdentifier
+	if identifier == "" {
+		identifier = server.Name
+	}
+	ip := server.VirtualIP
+	if ip == "" {
+		// 新加入虚拟网络的服务器：以添加时填写的 IP 作为首次同步的对比基准
+		ip = server.IP
+	}
+	sv := &models.ServerVirtual{
+		ServerID:   server.ID,
+		Network:    server.VirtualNetwork,
+		Identifier: identifier,
+		IP:         ip,
+	}
+	models.UpsertServerVirtual(sv)
+	// 回填标识，保证响应完整
+	server.VirtualIdentifier = identifier
 }

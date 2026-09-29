@@ -80,6 +80,12 @@ const routes = [
         meta: { title: '远程桌面' }
       },
       {
+        path: 'vnet',
+        name: 'VirtualNetwork',
+        component: () => import('../views/VirtualNetwork.vue'),
+        meta: { title: '虚拟网络' }
+      },
+      {
         path: 'settings',
         name: 'SystemSettings',
         component: () => import('../views/SystemSettings.vue'),

@@ -10,7 +10,8 @@
     "webAccess": "Web Access",
     "sshAccess": "SSH Access",
     "rdpAccess": "RDP Access",
-    "settings": "Settings"
+    "settings": "Settings",
+    "vnet": "Virtual Network"
   },
   "common": {
     "home": "Home",

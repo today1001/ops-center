@@ -61,6 +61,20 @@ export const serverAPI = {
   getServiceDetail: (serverId, serviceId) => api.get(`/servers/${serverId}/services/${serviceId}/detail`)
 }
 
+// 虚拟网络API
+export const vnetAPI = {
+  getNetworks: () => api.get('/vnet/networks'),
+  addNetwork: (data) => api.post('/vnet/networks', data),
+  updateNetwork: (id, data) => api.put(`/vnet/networks/${id}`, data),
+  deleteNetwork: (id) => api.delete(`/vnet/networks/${id}`),
+  getPeers: () => api.get('/vnet/peers'),
+  sync: () => api.post('/vnet/sync'),
+  getLastSync: () => api.get('/vnet/last-sync'),
+  bind: (data) => api.post('/vnet/bind', data),
+  unbind: (data) => api.post('/vnet/unbind', data),
+  getServerVirtual: (id) => api.get(`/servers/${id}/virtual`)
+}
+
 // 分组管理API
 export const groupAPI = {
   getList: () => api.get('/groups'),

@@ -50,6 +50,10 @@
             <el-icon><Monitor /></el-icon>
             <span>{{ t('nav.rdpAccess') }}</span>
           </el-menu-item>
+          <el-menu-item index="/vnet">
+            <el-icon><Monitor /></el-icon>
+            <span>{{ t('nav.vnet') }}</span>
+          </el-menu-item>
         </el-sub-menu>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>

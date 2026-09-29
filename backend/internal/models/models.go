@@ -28,6 +28,12 @@ type Server struct {
 	Tags       string    `json:"tags"`
 	GroupName  string    `json:"group_name"` // 分组名称
 	CreatedBy  int       `json:"created_by"`
+
+	// 虚拟网络信息（由 server_virtual 表提供，处理器填充）
+	VirtualNetwork    string `json:"virtual_network,omitempty"`
+	VirtualIdentifier string `json:"virtual_identifier,omitempty"`
+	VirtualIP         string `json:"virtual_ip,omitempty"`
+	VirtualOnline     int    `json:"virtual_online,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }

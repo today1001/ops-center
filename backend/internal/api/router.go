@@ -100,11 +100,36 @@ func Run() {
 		auth.POST("/ssh/session", CreateSSHSessionHandler)
 		auth.POST("/ssh/shadow", CreateSSHShadowHandler)
 
+		// 虚拟网络
+		auth.GET("/vnet/networks", GetVnetNetworksHandler)
+		auth.POST("/vnet/networks", CreateVnetNetworkHandler)
+		auth.PUT("/vnet/networks/:id", UpdateVnetNetworkHandler)
+		auth.DELETE("/vnet/networks/:id", DeleteVnetNetworkHandler)
+		auth.GET("/vnet/peers", GetVnetPeersHandler)
+		auth.POST("/vnet/sync", VnetSyncHandler)
+		auth.GET("/vnet/last-sync", GetLastVnetSyncHandler)
+		auth.POST("/vnet/bind", VnetBindHandler)
+		auth.POST("/vnet/unbind", VnetUnbindHandler)
+		auth.GET("/servers/:id/virtual", VnetServerVirtualHandler)
+
+		// 救援控制台 API
+		auth.GET("/rescue/status", RescueStatusHandler)
+		auth.POST("/rescue/backup-db", RescueBackupDBHandler)
+		auth.GET("/rescue/log", RescueLogHandler)
+		auth.POST("/rescue/restart", RescueRestartHandler)
+		auth.POST("/rescue/fix-assets", RescueFixAssetsHandler)
+
 		// RDP远程桌面
 		auth.POST("/tools/rdp/session", CreateRDPSessionHandler)
 	}
 
-	// Guacamole 反向代理（含 WebSocket 隧道）
+		// 救援控制台页面（不依赖前端构建产物，主界面白屏时也可用）
+	r.GET("/rescue.html", RescuePageHandler)
+
+	// 虚拟网络后台同步
+	go services.StartVnetSyncLoop()
+
+// Guacamole 反向代理（含 WebSocket 隧道）
 	r.Any("/guac/*path", GuacProxyHandler)
 	r.Any("/guac", GuacProxyHandler)
 
