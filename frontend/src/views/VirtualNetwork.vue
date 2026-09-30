@@ -104,14 +104,45 @@
             </template>
             <template v-else>
               <el-tag size="small" type="warning">未绑定</el-tag>
-              <el-button size="small" link type="primary" @click="openBindDialog(row)">绑定到服务器</el-button>
+              <el-button size="small" link type="primary" @click="openBindDialog(row)">绑定到已有</el-button>
+              <el-button size="small" link type="success" @click="openAddServerDialog(row)">添加为服务器</el-button>
             </template>
           </template>
         </el-table-column>
         <el-table-column prop="version" label="版本" width="160" show-overflow-tooltip />
       </el-table>
-      <div class="tip">绑定后，节点虚拟 IP 变化时自动更新对应服务器及其服务地址（每 60 秒自动同步）</div>
+      <div class="tip">未绑定节点可「添加为服务器」或「绑定到已有」；绑定后虚拟 IP 变化时自动更新对应服务器及其服务地址（每 60 秒自动同步）</div>
     </el-card>
+
+    <!-- 添加为服务器对话框 -->
+    <el-dialog v-model="addServerDialog" title="从虚拟网络节点添加服务器" width="460px">
+      <el-form label-width="90px">
+        <el-form-item label="节点">
+          <span>{{ addForm.hostname }}（{{ addForm.ip }}）</span>
+        </el-form-item>
+        <el-form-item label="服务器名称">
+          <el-input v-model="addForm.name" />
+        </el-form-item>
+        <el-form-item label="操作系统">
+          <el-select v-model="addForm.os" style="width: 100%;">
+            <el-option label="Linux" value="Linux" />
+            <el-option label="Windows" value="Windows" />
+            <el-option label="macOS" value="macOS" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="用户名">
+          <el-input v-model="addForm.username" placeholder="SSH登录用户名" />
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input v-model="addForm.password" type="password" placeholder="SSH登录密码" show-password />
+        </el-form-item>
+      </el-form>
+      <div class="tip">添加后自动创建SSH服务（指向当前虚拟IP），并纳入 🌐 {{ addForm.network }} 分组；虚拟IP变化时自动跟随更新</div>
+      <template #footer>
+        <el-button @click="addServerDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleAddServer" :loading="saving">添加</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 网络源编辑对话框 -->
     <el-dialog v-model="networkDialog" :title="networkForm.id ? '编辑网络源' : '添加网络源'" width="480px">
@@ -182,6 +213,45 @@ const networkForm = reactive({ id: 0, name: '', type: 'easytier-local', rpc_addr
 
 const bindDialog = ref(false)
 const bindForm = reactive({ network: '', hostname: '', ip: '', server_id: 0 })
+
+const addServerDialog = ref(false)
+const addForm = reactive({ network: '', hostname: '', ip: '', name: '', os: 'Linux', username: '', password: '' })
+
+const openAddServerDialog = (row) => {
+  Object.assign(addForm, {
+    network: row.network, hostname: row.hostname, ip: row.ip,
+    name: row.hostname, os: 'Linux', username: '', password: ''
+  })
+  addServerDialog.value = true
+}
+
+const handleAddServer = async () => {
+  if (!addForm.name) {
+    ElMessage.warning('请输入服务器名称')
+    return
+  }
+  saving.value = true
+  try {
+    const defaultUser = addForm.os === 'Windows' ? 'administrator' : 'root'
+    await serverAPI.create({
+      name: addForm.name,
+      ip: addForm.ip,
+      username: addForm.username || defaultUser,
+      password: addForm.password,
+      os: addForm.os,
+      virtual_network: addForm.network,
+      virtual_identifier: addForm.hostname
+    })
+    ElMessage.success('服务器已添加（SSH服务已自动创建，纳入虚拟网络分组）')
+    addServerDialog.value = false
+    loadPeers()
+    loadServers()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.error || '添加失败')
+  } finally {
+    saving.value = false
+  }
+}
 
 const networkRules = {
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],

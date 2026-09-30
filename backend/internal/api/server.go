@@ -240,6 +240,9 @@ func DeleteServerHandler(c *gin.Context) {
 		return
 	}
 
+	// 清理虚拟网络关联
+	models.DeleteServerVirtual(id)
+
 	c.JSON(http.StatusOK, gin.H{"message": "删除成功"})
 }
 
