@@ -6,9 +6,9 @@
         <div class="card-header"><span>常见虚拟网络</span></div>
       </template>
       <div class="provider-row">
-        <div class="provider-card" @click="openJoinDialog()">
+        <div class="provider-card" @click="openCreateDialog">
           <div class="provider-name">EasyTier</div>
-          <div class="provider-desc">点击配置连接参数：已连接则纳入管理，未连接则自动创建 tun 和连接</div>
+          <div class="provider-desc">新建网络或连接已有网络 RPC</div>
           <el-tag size="small" type="success" class="provider-tag">支持</el-tag>
         </div>
         <div class="provider-card disabled">
@@ -29,7 +29,10 @@
       <template #header>
         <div class="card-header">
           <span>已配置的连接</span>
-          <el-button size="small" link type="primary" @click="openManualDialog">手动添加RPC源</el-button>
+          <div class="header-actions">
+            <el-button size="small" @click="openCreateDialog">新建网络</el-button>
+            <el-button size="small" @click="openJoinRpcDialog()">加入RPC</el-button>
+          </div>
         </div>
       </template>
 
@@ -58,7 +61,7 @@
               </el-popconfirm>
             </template>
             <template v-else>
-              <el-button size="small" @click="openManualDialog(row)">编辑</el-button>
+              <el-button size="small" @click="openJoinRpcDialog(row)">编辑</el-button>
               <el-popconfirm title="确定删除该网络源？" @confirm="handleDeleteNetwork(row)">
                 <template #reference>
                   <el-button size="small" type="danger">删除</el-button>
@@ -118,11 +121,32 @@
       <div class="tip">未绑定节点可「添加为服务器」或「绑定到已有」；绑定后虚拟 IP 变化时自动更新对应服务器及其服务地址（每 60 秒自动同步）</div>
     </el-card>
 
-    <!-- 加入/创建虚拟网络对话框 -->
-    <el-dialog v-model="joinDialog" title="加入 / 创建虚拟网络（EasyTier）" width="520px">
-      <el-form ref="joinFormRef" :model="joinForm" :rules="joinRules" label-width="110px">
+    <!-- 新建 / 加入RPC 统一对话框 -->
+    <el-dialog
+      v-model="dialogVisible"
+      :title="dialogMode === 'create' ? '新建虚拟网络（EasyTier）' : (networkForm.id ? '编辑网络源' : '加入网络（连接 RPC）')"
+      width="520px"
+    >
+      <!-- 模式切换（新建时显示） -->
+      <el-radio-group
+        v-if="dialogMode !== 'edit'"
+        v-model="dialogMode"
+        style="margin-bottom: 14px;"
+      >
+        <el-radio-button value="create">新建网络</el-radio-button>
+        <el-radio-button value="joinrpc">加入网络（连RPC）</el-radio-button>
+      </el-radio-group>
+
+      <!-- 新建模式 -->
+      <el-form
+        v-if="dialogMode === 'create'"
+        ref="joinFormRef"
+        :model="joinForm"
+        :rules="joinRules"
+        label-width="110px"
+      >
         <el-form-item label="网络名称" prop="name">
-          <el-input v-model="joinForm.name" placeholder="例如: ltnet（本机已连接该网络则直接纳入管理）" />
+          <el-input v-model="joinForm.name" placeholder="例如: ltnet2（本机已连接该网络则直接纳入管理）" />
         </el-form-item>
         <el-form-item label="网络密钥" prop="secret">
           <el-input v-model="joinForm.secret" placeholder="虚拟网络密码" show-password />
@@ -138,27 +162,20 @@
         </el-form-item>
         <el-form-item label="开机自启">
           <el-switch v-model="joinForm.autostartBool" />
-          <div class="tip">新建实例时生成 systemd 服务，服务器重启后自动重连</div>
+          <div class="tip">自动生成 systemd 服务，服务器重启后自动重连</div>
         </el-form-item>
       </el-form>
-      <div class="tip">保存时先检查本机是否已连接该网络：已连接则直接纳入管理；未连接则自动创建 tun 和 easytier 连接</div>
-      <template #footer>
-        <el-button @click="joinDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleJoin" :loading="saving">保存并连接</el-button>
-      </template>
-    </el-dialog>
 
-    <!-- 手动添加RPC源对话框 -->
-    <el-dialog v-model="manualDialog" :title="networkForm.id ? '编辑网络源' : '手动添加RPC源'" width="480px">
-      <el-form ref="networkFormRef" :model="networkForm" :rules="networkRules" label-width="90px">
+      <!-- 加入RPC模式 -->
+      <el-form
+        v-else
+        ref="networkFormRef"
+        :model="networkForm"
+        :rules="networkRules"
+        label-width="90px"
+      >
         <el-form-item label="名称" prop="name">
           <el-input v-model="networkForm.name" placeholder="例如: LtNet" />
-        </el-form-item>
-        <el-form-item label="类型" prop="type">
-          <el-select v-model="networkForm.type" style="width: 100%;">
-            <el-option label="EasyTier（本机 RPC）" value="easytier-local" />
-            <el-option label="EasyTier（远程 RPC）" value="easytier-rpc" />
-          </el-select>
         </el-form-item>
         <el-form-item label="RPC 地址" prop="rpc_addr">
           <el-input v-model="networkForm.rpc_addr" placeholder="例如: 127.0.0.1:15888 或 10.x.x.x:15888" />
@@ -170,9 +187,15 @@
           <el-switch v-model="networkForm.enabledBool" />
         </el-form-item>
       </el-form>
+
+      <div v-if="dialogMode === 'create'" class="tip">
+        保存时先检查本机是否已连接该网络：已连接则直接纳入管理；未连接则自动创建 tun 和 easytier 连接
+      </div>
       <template #footer>
-        <el-button @click="manualDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleSaveNetwork" :loading="saving">保存</el-button>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleSubmit" :loading="saving">
+          {{ dialogMode === 'create' ? '创建并连接' : '保存' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -241,19 +264,21 @@ const saving = ref(false)
 const lastSync = ref(null)
 let refreshTimer = null
 
-// 加入/创建对话框
-const joinDialog = ref(false)
+// 统一对话框
+const dialogVisible = ref(false)
+const dialogMode = ref('create') // create | joinrpc | edit
+
+// 新建表单
 const joinFormRef = ref(null)
-const joinForm = reactive({ id: 0, name: '', secret: '', local_ip: '', peers: '', subnet: '', autostartBool: true })
+const joinForm = reactive({ name: '', secret: '', local_ip: '', peers: '', subnet: '', autostartBool: true })
 const joinRules = {
   name: [{ required: true, message: '请输入网络名称', trigger: 'blur' }],
   local_ip: [{ required: true, message: '请输入本机虚拟IP', trigger: 'blur' }]
 }
 
-// 手动RPC源对话框
-const manualDialog = ref(false)
+// 加入RPC表单
 const networkFormRef = ref(null)
-const networkForm = reactive({ id: 0, name: '', type: 'easytier-local', rpc_addr: '127.0.0.1:15888', subnet: '', enabledBool: true })
+const networkForm = reactive({ id: 0, name: '', type: 'easytier-rpc', rpc_addr: '', subnet: '', enabledBool: true })
 const networkRules = {
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
   rpc_addr: [{ required: true, message: '请输入连接地址', trigger: 'blur' }]
@@ -303,70 +328,54 @@ const doSync = async () => {
   }
 }
 
-// 加入/创建
-const openJoinDialog = () => {
-  Object.assign(joinForm, { id: 0, name: '', secret: '', local_ip: '', peers: '', subnet: '', autostartBool: true })
-  joinDialog.value = true
+// 打开新建
+const openCreateDialog = () => {
+  dialogMode.value = 'create'
+  Object.assign(joinForm, { name: '', secret: '', local_ip: '', peers: '', subnet: '', autostartBool: true })
+  dialogVisible.value = true
 }
 
-const handleJoin = async () => {
-  const valid = await joinFormRef.value.validate().catch(() => false)
-  if (!valid) return
-  saving.value = true
-  try {
-    const res = await vnetAPI.join({
-      name: joinForm.name, secret: joinForm.secret, local_ip: joinForm.local_ip,
-      peers: joinForm.peers, subnet: joinForm.subnet, autostart: joinForm.autostartBool
-    })
-    ElMessage.success(res.message)
-    joinDialog.value = false
-    loadNetworks(); loadPeers(); loadServers()
-  } catch (e) {
-    ElMessage.error(e.response?.data?.error || '操作失败')
-  } finally {
-    saving.value = false
-  }
-}
-
-// 手动RPC源
-const openManualDialog = (row) => {
+// 打开加入RPC（编辑外部源时复用）
+const openJoinRpcDialog = (row) => {
+  dialogMode.value = 'joinrpc'
   if (row) {
     Object.assign(networkForm, { id: row.id, name: row.name, type: row.type, rpc_addr: row.rpc_addr, subnet: row.subnet, enabledBool: !!row.enabled })
   } else {
     Object.assign(networkForm, { id: 0, name: '', type: 'easytier-rpc', rpc_addr: '', subnet: '', enabledBool: true })
   }
-  manualDialog.value = true
+  dialogVisible.value = true
 }
 
-const handleSaveNetwork = async () => {
-  const valid = await networkFormRef.value.validate().catch(() => false)
-  if (!valid) return
+// 统一提交
+const handleSubmit = async () => {
   saving.value = true
   try {
-    const data = { name: networkForm.name, type: networkForm.type, rpc_addr: networkForm.rpc_addr, subnet: networkForm.subnet, enabled: networkForm.enabledBool ? 1 : 0 }
-    if (networkForm.id) {
-      await vnetAPI.updateNetwork(networkForm.id, data)
-      ElMessage.success('更新成功')
+    if (dialogMode.value === 'create') {
+      const valid = await joinFormRef.value.validate().catch(() => false)
+      if (!valid) return
+      const res = await vnetAPI.join({
+        name: joinForm.name, secret: joinForm.secret, local_ip: joinForm.local_ip,
+        peers: joinForm.peers, subnet: joinForm.subnet, autostart: joinForm.autostartBool
+      })
+      ElMessage.success(res.message)
     } else {
-      await vnetAPI.addNetwork(data)
-      ElMessage.success('添加成功')
+      const valid = await networkFormRef.value.validate().catch(() => false)
+      if (!valid) return
+      const data = { name: networkForm.name, type: networkForm.type, rpc_addr: networkForm.rpc_addr, subnet: networkForm.subnet, enabled: networkForm.enabledBool ? 1 : 0 }
+      if (networkForm.id) {
+        await vnetAPI.updateNetwork(networkForm.id, data)
+        ElMessage.success('更新成功')
+      } else {
+        await vnetAPI.addNetwork(data)
+        ElMessage.success('加入成功')
+      }
     }
-    manualDialog.value = false
-    loadNetworks()
+    dialogVisible.value = false
+    loadNetworks(); loadPeers(); loadServers()
   } catch (e) {
-    ElMessage.error(e.response?.data?.error || '保存失败')
+    ElMessage.error(e.response?.data?.error || '操作失败')
   } finally {
     saving.value = false
-  }
-}
-
-const handleDeleteNetwork = async (row) => {
-  try {
-    await vnetAPI.deleteNetwork(row.id)
-    ElMessage.success('删除成功')
-    loadNetworks()
-  } catch (e) {
-    ElMessage.error('删除失败')
   }
 }
 
@@ -388,6 +397,16 @@ const handleDeleteInstance = async (row) => {
     loadNetworks(); loadPeers(); loadServers()
   } catch (e) {
     ElMessage.error(e.response?.data?.error || '删除失败')
+  }
+}
+
+const handleDeleteNetwork = async (row) => {
+  try {
+    await vnetAPI.deleteNetwork(row.id)
+    ElMessage.success('删除成功')
+    loadNetworks()
+  } catch (e) {
+    ElMessage.error('删除失败')
   }
 }
 
