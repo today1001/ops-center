@@ -110,7 +110,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh, Download } from '@element-plus/icons-vue'
-import { serverAPI } from '../../api'
+import { serverAPI, vnetAPI } from '../../api'
 import StatusDot from '../../components/StatusDot.vue'
 import StatusLegend from '../../components/StatusLegend.vue'
 
@@ -134,19 +134,49 @@ const statusColor = (status) => {
   return map[status] || '#909399'
 }
 
-// 按分组聚合服务器（虚拟IP作为次要信息显示在服务器条目中）
+// 虚拟网络分组：easytier-<网络名>
+const vnetNetworks = ref([])
+const ipToInt = (ip) => ip.split('.').reduce((a, o) => ((a << 8) + (+o)) >>> 0, 0)
+const cidrMatch = (ip, subnet) => {
+  if (!ip || !subnet || !subnet.includes('/')) return false
+  const parts = subnet.split('/')
+  const mask = parts[1] === '0' ? 0 : ((~0 << (32 - +parts[1])) >>> 0)
+  return (ipToInt(ip) & mask) === (ipToInt(parts[0]) & mask)
+}
+const loadVnetNetworks = async () => {
+  try { vnetNetworks.value = await vnetAPI.getNetworks() } catch (e) { vnetNetworks.value = [] }
+}
+
+// 按分组聚合：局域网IP在原分组，虚拟网在 easytier-<网络名> 分组
 const groupedServers = computed(() => {
   const groups = {}
-  for (const s of servers.value) {
-    const name = s.group_name || '未分组'
-    if (!groups[name]) groups[name] = []
+  const order = []
+  const push = (name, s) => {
+    if (!groups[name]) { groups[name] = []; order.push(name) }
     groups[name].push(s)
   }
-  return Object.keys(groups).map(name => ({ name, servers: groups[name] }))
+  for (const s of servers.value) {
+    const net = vnetNetworks.value.find(n => n.name === s.virtual_network)
+    if (s.virtual_network && net) {
+      const gname = 'easytier-' + s.virtual_network
+      if (cidrMatch(s.ip, net.subnet)) {
+        // 主IP就在虚拟网段内：仅虚拟身份，只进虚拟分组
+        push(gname, s)
+      } else {
+        // 双身份：局域网IP在原分组，虚拟IP在虚拟分组
+        push(s.group_name || '未分组', s)
+        push(gname, s)
+      }
+    } else {
+      push(s.group_name || '未分组', s)
+    }
+  }
+  return order.map(name => ({ name, servers: groups[name] }))
 })
 
 onMounted(() => {
   loadServers()
+  loadVnetNetworks()
 })
 
 const loadServers = async () => {

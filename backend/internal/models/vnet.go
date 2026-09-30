@@ -12,6 +12,7 @@ type VnetNetwork struct {
 	RPCAddr   string `json:"rpc_addr"`  // RPC 地址，如 127.0.0.1:15888
 	Subnet    string `json:"subnet"`    // 虚拟网段，如 10.10.10.0/24
 	Enabled   int    `json:"enabled"`
+	Managed   int    `json:"managed"` // 1=本平台创建的实例(可停止/删除)
 	CreatedAt string `json:"created_at"`
 }
 
@@ -51,6 +52,8 @@ func CreateVnetTables() error {
 	if _, err := db.Exec(t2); err != nil {
 		return err
 	}
+	// managed 列（已存在时忽略报错）
+	_, _ = db.Exec("ALTER TABLE vnet_networks ADD COLUMN managed INTEGER DEFAULT 0")
 	// 预置默认源
 	var count int
 	if err := db.QueryRow("SELECT COUNT(*) FROM vnet_networks").Scan(&count); err == nil && count == 0 {
@@ -61,7 +64,7 @@ func CreateVnetTables() error {
 
 // GetVnetNetworks 网络源列表
 func GetVnetNetworks() ([]VnetNetwork, error) {
-	rows, err := db.Query("SELECT id, name, type, rpc_addr, subnet, enabled, created_at FROM vnet_networks ORDER BY id")
+	rows, err := db.Query("SELECT id, name, type, rpc_addr, subnet, enabled, managed, created_at FROM vnet_networks ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +72,7 @@ func GetVnetNetworks() ([]VnetNetwork, error) {
 	var list []VnetNetwork
 	for rows.Next() {
 		var n VnetNetwork
-		if err := rows.Scan(&n.ID, &n.Name, &n.Type, &n.RPCAddr, &n.Subnet, &n.Enabled, &n.CreatedAt); err != nil {
+		if err := rows.Scan(&n.ID, &n.Name, &n.Type, &n.RPCAddr, &n.Subnet, &n.Enabled, &n.Managed, &n.CreatedAt); err != nil {
 			return nil, err
 		}
 		list = append(list, n)
@@ -79,8 +82,8 @@ func GetVnetNetworks() ([]VnetNetwork, error) {
 
 // CreateVnetNetwork 新增网络源
 func CreateVnetNetwork(n *VnetNetwork) error {
-	result, err := db.Exec("INSERT INTO vnet_networks (name, type, rpc_addr, subnet, enabled) VALUES (?, ?, ?, ?, ?)",
-		n.Name, n.Type, n.RPCAddr, n.Subnet, n.Enabled)
+	result, err := db.Exec("INSERT INTO vnet_networks (name, type, rpc_addr, subnet, enabled, managed) VALUES (?, ?, ?, ?, ?, ?)",
+		n.Name, n.Type, n.RPCAddr, n.Subnet, n.Enabled, n.Managed)
 	if err != nil {
 		return err
 	}

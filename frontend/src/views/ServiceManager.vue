@@ -342,7 +342,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh, ArrowDown, TopRight } from '@element-plus/icons-vue'
-import { serverAPI, settingsAPI, toolsAPI } from '../api'
+import { serverAPI, settingsAPI, toolsAPI, vnetAPI } from '../api'
 import StatusDot from '../components/StatusDot.vue'
 import WebAccessDialog from '../components/WebAccessDialog.vue'
 import SshTerminal from '../components/SshTerminal.vue'
@@ -371,15 +371,39 @@ const filteredServers = computed(() => {
 
 // 按分组聚合服务器（折叠展示）
 const activeGroups = ref([])
-// 按分组聚合服务器（虚拟IP作为次要信息显示在服务器条目中）
+// 虚拟网络分组：easytier-<网络名>
+const vnetNetworks = ref([])
+const ipToInt = (ip) => ip.split('.').reduce((a, o) => ((a << 8) + (+o)) >>> 0, 0)
+const cidrMatch = (ip, subnet) => {
+  if (!ip || !subnet || !subnet.includes('/')) return false
+  const parts = subnet.split('/')
+  const mask = parts[1] === '0' ? 0 : ((~0 << (32 - +parts[1])) >>> 0)
+  return (ipToInt(ip) & mask) === (ipToInt(parts[0]) & mask)
+}
+
+// 按分组聚合：局域网IP在原分组，虚拟网在 easytier-<网络名> 分组
 const groupedServers = computed(() => {
   const groups = {}
-  for (const s of filteredServers.value) {
-    const name = s.group_name || '未分组'
-    if (!groups[name]) groups[name] = []
+  const order = []
+  const push = (name, s) => {
+    if (!groups[name]) { groups[name] = []; order.push(name) }
     groups[name].push(s)
   }
-  return Object.keys(groups).map(name => ({ name, servers: groups[name] }))
+  for (const s of filteredServers.value) {
+    const net = vnetNetworks.value.find(n => n.name === s.virtual_network)
+    if (s.virtual_network && net) {
+      const gname = 'easytier-' + s.virtual_network
+      if (cidrMatch(s.ip, net.subnet)) {
+        push(gname, s)
+      } else {
+        push(s.group_name || '未分组', s)
+        push(gname, s)
+      }
+    } else {
+      push(s.group_name || '未分组', s)
+    }
+  }
+  return order.map(name => ({ name, servers: groups[name] }))
 })
 
 const dialogVisible = ref(false)
@@ -708,6 +732,7 @@ const loadPortProfiles = async () => {
 onMounted(() => {
   loadPortProfiles()
   loadServers()
+  vnetAPI.getNetworks().then(n => { vnetNetworks.value = n }).catch(() => { vnetNetworks.value = [] })
 })
 </script>
 

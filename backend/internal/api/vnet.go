@@ -227,3 +227,74 @@ func VnetServerVirtualHandler(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, sv)
 }
+
+
+// VnetJoinOrCreateHandler 加入或创建虚拟网络实例
+// 先查本机是否已有该网络（按网络名），有则接管管理；无则新建 tun + easytier 连接
+func VnetJoinOrCreateHandler(c *gin.Context) {
+	var req services.JoinRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+	res, err := services.VnetJoinOrCreate(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
+// VnetStopInstanceHandler 停止托管实例
+func VnetStopInstanceHandler(c *gin.Context) {
+	var req struct {
+		ID int `json:"id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.ID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+	networks, err := models.GetVnetNetworks()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询失败"})
+		return
+	}
+	for _, net := range networks {
+		if net.ID == req.ID {
+			if err := services.VnetStopInstance(net); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"message": "实例已停止"})
+			return
+		}
+	}
+	c.JSON(http.StatusNotFound, gin.H{"error": "网络源不存在"})
+}
+
+// VnetDeleteInstanceHandler 删除托管实例（停止+清理配置）
+func VnetDeleteInstanceHandler(c *gin.Context) {
+	var req struct {
+		ID int `json:"id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.ID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+	networks, err := models.GetVnetNetworks()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询失败"})
+		return
+	}
+	for _, net := range networks {
+		if net.ID == req.ID {
+			if err := services.VnetDeleteInstance(net); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"message": "实例已删除"})
+			return
+		}
+	}
+	c.JSON(http.StatusNotFound, gin.H{"error": "网络源不存在"})
+}
