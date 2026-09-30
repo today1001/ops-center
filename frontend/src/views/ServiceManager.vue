@@ -371,22 +371,15 @@ const filteredServers = computed(() => {
 
 // 按分组聚合服务器（折叠展示）
 const activeGroups = ref([])
-// 按分组聚合服务器（绑定虚拟网络的服务器自动归入对应虚拟网络分组）
+// 按分组聚合服务器（虚拟IP作为次要信息显示在服务器条目中）
 const groupedServers = computed(() => {
   const groups = {}
-  const order = []
-  const push = (name, s) => {
-    if (!groups[name]) { groups[name] = []; order.push(name) }
+  for (const s of filteredServers.value) {
+    const name = s.group_name || '未分组'
+    if (!groups[name]) groups[name] = []
     groups[name].push(s)
   }
-  for (const s of filteredServers.value) {
-    if (s.virtual_network) {
-      push('🌐 ' + s.virtual_network, s)
-    } else {
-      push(s.group_name || '未分组', s)
-    }
-  }
-  return order.map(name => ({ name, servers: groups[name] }))
+  return Object.keys(groups).map(name => ({ name, servers: groups[name] }))
 })
 
 const dialogVisible = ref(false)
