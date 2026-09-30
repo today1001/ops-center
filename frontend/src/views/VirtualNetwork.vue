@@ -1,7 +1,31 @@
 <template>
   <div class="vnet-page">
-    <!-- 网络源管理 -->
+    <!-- 常见虚拟网络 -->
     <el-card>
+      <template #header>
+        <div class="card-header"><span>常见虚拟网络</span></div>
+      </template>
+      <div class="provider-row">
+        <div class="provider-card" @click="openNetworkDialog()">
+          <div class="provider-name">EasyTier</div>
+          <div class="provider-desc">去中心化组网 · 点击配置连接参数</div>
+          <el-tag size="small" type="success" class="provider-tag">支持</el-tag>
+        </div>
+        <div class="provider-card disabled">
+          <div class="provider-name">WireGuard</div>
+          <div class="provider-desc">敬请期待</div>
+          <el-tag size="small" type="info" class="provider-tag">规划中</el-tag>
+        </div>
+        <div class="provider-card disabled">
+          <div class="provider-name">ZeroTier</div>
+          <div class="provider-desc">敬请期待</div>
+          <el-tag size="small" type="info" class="provider-tag">规划中</el-tag>
+        </div>
+      </div>
+    </el-card>
+
+    <!-- 网络源管理 -->
+    <el-card style="margin-top: 16px;">
       <template #header>
         <div class="card-header">
           <span>虚拟网络源</span>
@@ -326,5 +350,49 @@ onBeforeUnmount(() => {
   margin-top: 10px;
   font-size: 12px;
   color: #909399;
+}
+
+.provider-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.provider-card {
+  position: relative;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all .2s;
+  background: #fafbfc;
+}
+
+.provider-card:hover {
+  border-color: #409eff;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, .15);
+}
+
+.provider-card.disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.provider-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: #303133;
+}
+
+.provider-desc {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+
+.provider-tag {
+  position: absolute;
+  top: 10px;
+  right: 10px;
 }
 </style>

@@ -33,6 +33,10 @@
           <el-icon><Tools /></el-icon>
           <span>{{ t('nav.systemTest') }}</span>
         </el-menu-item>
+        <el-menu-item index="/vnet">
+          <el-icon><Connection /></el-icon>
+          <span>{{ t('nav.vnet') }}</span>
+        </el-menu-item>
         <el-sub-menu index="/tools">
           <template #title>
             <el-icon><MagicStick /></el-icon>
@@ -49,10 +53,6 @@
           <el-menu-item index="/tools/rdp">
             <el-icon><Monitor /></el-icon>
             <span>{{ t('nav.rdpAccess') }}</span>
-          </el-menu-item>
-          <el-menu-item index="/vnet">
-            <el-icon><Monitor /></el-icon>
-            <span>{{ t('nav.vnet') }}</span>
           </el-menu-item>
         </el-sub-menu>
         <el-menu-item index="/settings">
@@ -342,5 +342,33 @@ const handleLocaleCommand = (command) => {
 .aside :deep(.el-sub-menu .el-sub-menu__title:hover) {
   color: #fff !important;
   background-color: #1f2d3d !important;
+}
+</style>
+
+<style>
+/* 子菜单展开区域：保持深色背景（修复白底白字） */
+.aside .el-menu--inline {
+  background-color: transparent;
+  --el-menu-bg-color: transparent;
+}
+.aside .el-menu--inline .el-menu-item {
+  background-color: transparent;
+}
+
+/* 弹出式子菜单（如有）保持深色 */
+.el-popper.is-vertical .el-menu,
+.el-menu--vertical .el-menu {
+  background-color: #1f2d3d;
+  --el-menu-bg-color: #1f2d3d;
+}
+.el-menu--vertical .el-menu-item {
+  color: #fff;
+}
+.el-menu--vertical .el-menu-item:hover {
+  background-color: #1f2d3d;
+  color: #fff;
+}
+.el-menu--vertical .el-menu-item.is-active {
+  color: #409eff;
 }
 </style>
