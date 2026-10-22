@@ -11,7 +11,8 @@
     "sshAccess": "SSH Access",
     "rdpAccess": "RDP Access",
     "settings": "Settings",
-    "vnet": "Virtual Network"
+    "vnet": "Virtual Network",
+    "apiDocs": "API Docs"
   },
   "common": {
     "home": "Home",
