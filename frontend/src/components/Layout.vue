@@ -59,13 +59,6 @@
           <el-icon><Setting /></el-icon>
           <span>{{ t('nav.settings') }}</span>
         </el-menu-item>
-      </el-menu>
-
-      <el-menu
-        :default-active="route.path"
-        router
-        class="menu menu-bottom"
-      >
         <el-menu-item index="/docs">
           <el-icon><Document /></el-icon>
           <span>{{ t('nav.apiDocs') }}</span>
@@ -199,10 +192,6 @@ const handleLocaleCommand = (command) => {
   background-color: var(--sidebar-bg, #304156);
   color: var(--sidebar-text, #fff);
   transition: background-color 0.3s ease, color 0.3s ease;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
 }
 
 .logo {
@@ -224,16 +213,6 @@ const handleLocaleCommand = (command) => {
   border-right: none;
   background-color: var(--sidebar-bg, #304156);
   transition: background-color 0.3s ease;
-  flex: 1;
-  overflow-y: auto;
-}
-
-/* 底部固定项：API 文档 */
-.menu-bottom {
-  flex-shrink: 0;
-  margin-top: auto;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  padding-bottom: 10px;
 }
 
 .header {
