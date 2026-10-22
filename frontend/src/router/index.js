@@ -86,6 +86,12 @@ const routes = [
         meta: { title: '虚拟网络' }
       },
       {
+        path: 'docs',
+        name: 'ApiDocumentation',
+        component: () => import('../views/ApiDocumentation.vue'),
+        meta: { title: 'API文档' }
+      },
+      {
         path: 'settings',
         name: 'SystemSettings',
         component: () => import('../views/SystemSettings.vue'),

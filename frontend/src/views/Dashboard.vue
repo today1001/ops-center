@@ -1,5 +1,22 @@
 <template>
   <div class="dashboard">
+
+    <!-- 快捷入口 -->
+    <el-card class="quick-card" shadow="never">
+      <div class="quick-bar">
+        <div class="quick-info">
+          <el-icon :size="22" color="#409EFF"><Document /></el-icon>
+          <div class="quick-text-wrap">
+            <div class="quick-text">调用后端接口？这里提供完整的 REST API 调用格式、鉴权方式与全部接口清单</div>
+            <div class="quick-sub">Bearer Token · JSON · GET / POST / PUT / DELETE · 含 curl 示例</div>
+          </div>
+        </div>
+        <el-button type="primary" @click="goApiDoc">
+          <el-icon><Document /></el-icon>
+          API 接口文档
+        </el-button>
+      </div>
+    </el-card>
     <!-- 服务器状态总览 -->
     <div class="stat-row">
       <el-card class="stat-card">
@@ -347,11 +364,17 @@
 
 <script setup>
 import { ref, reactive, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { Connection, Cpu, Monitor, Coin } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
+import { Connection, Cpu, Monitor, Coin, Document } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { serverAPI } from '../api'
 import StatusDot from '../components/StatusDot.vue'
 import StatusLegend from '../components/StatusLegend.vue'
+
+const router = useRouter()
+
+// 跳转 API 文档
+const goApiDoc = () => router.push('/docs')
 
 const stats = ref({
   total: 0,
@@ -630,4 +653,49 @@ onBeforeUnmount(() => {
 .server-link:hover {
   text-decoration: underline;
 }
+
+/* API 文档快捷入口 */
+.quick-card {
+  margin-top: 4px;
+  margin-bottom: 20px;
+  border: 1px solid #d9ecff;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #f2f8ff 0%, #ffffff 60%);
+}
+
+.quick-card :deep(.el-card__body) {
+  padding: 14px 20px;
+}
+
+.quick-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.quick-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.quick-text-wrap {
+  min-width: 0;
+}
+
+.quick-text {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.quick-sub {
+  font-size: 12.5px;
+  color: #909399;
+  margin-top: 3px;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
 </style>
