@@ -12,7 +12,10 @@
     "rdpAccess": "RDP Access",
     "settings": "Settings",
     "vnet": "Virtual Network",
-    "apiDocs": "API Docs"
+    "apiDocs": "API Docs",
+    "hypervisors": "Hypervisor",
+    "esxi": "ESXi",
+    "pve": "Proxmox VE"
   },
   "common": {
     "home": "Home",

@@ -37,6 +37,20 @@
           <el-icon><Connection /></el-icon>
           <span>{{ t('nav.vnet') }}</span>
         </el-menu-item>
+        <el-sub-menu index="/hypervisors">
+          <template #title>
+            <el-icon><Monitor /></el-icon>
+            <span>{{ t('nav.hypervisors') }}</span>
+          </template>
+          <el-menu-item index="/hypervisors/esxi">
+            <el-icon><Cpu /></el-icon>
+            <span>{{ t('nav.esxi') }}</span>
+          </el-menu-item>
+          <el-menu-item index="/hypervisors/pve">
+            <el-icon><Cpu /></el-icon>
+            <span>{{ t('nav.pve') }}</span>
+          </el-menu-item>
+        </el-sub-menu>
         <el-sub-menu index="/tools">
           <template #title>
             <el-icon><MagicStick /></el-icon>

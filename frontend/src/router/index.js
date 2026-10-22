@@ -86,6 +86,18 @@ const routes = [
         meta: { title: '虚拟网络' }
       },
       {
+        path: 'hypervisors/esxi',
+        name: 'EsxiManager',
+        component: () => import('../views/HypervisorManager.vue'),
+        meta: { title: 'ESXi 管理', hvType: 'esxi' }
+      },
+      {
+        path: 'hypervisors/pve',
+        name: 'PveManager',
+        component: () => import('../views/HypervisorManager.vue'),
+        meta: { title: 'PVE 管理', hvType: 'pve' }
+      },
+      {
         path: 'docs',
         name: 'ApiDocumentation',
         component: () => import('../views/ApiDocumentation.vue'),

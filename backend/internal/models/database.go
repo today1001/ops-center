@@ -48,6 +48,11 @@ func InitDB() error {
 		return err
 	}
 
+	// 虚拟化主机表（ESXi / PVE）
+	if err := CreateHypervisorTables(); err != nil {
+		return err
+	}
+
 	return nil
 }
 

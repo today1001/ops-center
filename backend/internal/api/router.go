@@ -114,6 +114,14 @@ func Run() {
 		auth.POST("/vnet/bind", VnetBindHandler)
 		auth.POST("/vnet/unbind", VnetUnbindHandler)
 		auth.GET("/servers/:id/virtual", VnetServerVirtualHandler)
+		// 虚拟化主机（ESXi / PVE）
+		auth.GET("/hypervisors", ListHypervisorHandler)
+		auth.POST("/hypervisors", CreateHypervisorHandler)
+		auth.PUT("/hypervisors/:id", UpdateHypervisorHandler)
+		auth.DELETE("/hypervisors/:id", DeleteHypervisorHandler)
+		auth.POST("/hypervisors/:id/test", TestHypervisorHandler)
+		auth.GET("/hypervisors/:id/inventory", HostInventoryHandler)
+		auth.POST("/hypervisors/:id/password", GetHypervisorPasswordHandler)
 
 		// 救援控制台 API
 		auth.GET("/rescue/status", RescueStatusHandler)

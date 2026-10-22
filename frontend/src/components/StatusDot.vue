@@ -17,9 +17,10 @@ const statusClass = computed(() => {
     'active': 'status-online',
     'busy': 'status-busy',
     'unreachable': 'status-unreachable',
-    'offline': 'status-offline'
+    'offline': 'status-offline',
+    'unknown': 'status-unknown'
   }
-  return classes[props.status] || 'status-offline'
+  return classes[props.status] || 'status-unknown'
 })
 
 const statusText = computed(() => {
@@ -27,7 +28,8 @@ const statusText = computed(() => {
     'active': '正常',
     'busy': '忙碌',
     'unreachable': '无法连接',
-    'offline': '掉线'
+    'offline': '掉线',
+    'unknown': '未知'
   }
   return texts[props.status] || '未知'
 })
@@ -59,5 +61,10 @@ const statusText = computed(() => {
 .status-offline {
   background-color: #F56C6C;
   box-shadow: 0 0 6px #F56C6C;
+}
+
+.status-unknown {
+  background-color: #909399;
+  box-shadow: 0 0 6px #909399;
 }
 </style>

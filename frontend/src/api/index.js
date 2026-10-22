@@ -120,4 +120,15 @@ export const toolsAPI = {
   createRdpSession: (data) => api.post('/tools/rdp/session', data)
 }
 
+// 虚拟化主机 API（ESXi / PVE）
+export const hypervisorAPI = {
+  getList: (type) => api.get('/hypervisors', { params: { type } }),
+  create: (data) => api.post('/hypervisors', data),
+  update: (id, data) => api.put(`/hypervisors/${id}`, data),
+  delete: (id) => api.delete(`/hypervisors/${id}`),
+  test: (id) => api.post(`/hypervisors/${id}/test`),
+  getInventory: (id) => api.get(`/hypervisors/${id}/inventory`),
+  getPassword: (id, password) => api.post(`/hypervisors/${id}/password`, { password })
+}
+
 export default api
