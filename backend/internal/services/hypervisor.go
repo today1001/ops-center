@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -168,35 +169,148 @@ func hvHuman(bytes int) string {
 	return ""
 }
 
-// ---------- ESXi ----------
+// ---------- ESXi / vCenter ----------
 
+// esxiLoginResult REST 登录结果；session 为空时 restHint 说明为什么不可用
+type esxiLoginResult struct {
+	session  string
+	restHint string
+}
+
+// esxiLogin 用 vSphere REST API 登录（仅 ESXi 6.7 / vCenter 6.7 及以上提供）
+func esxiLogin(base, user, pwd string) esxiLoginResult {
+	body, _ := json.Marshal(map[string]string{"username": user, "password": pwd})
+	rb, code, err := doHvRequest(http.MethodPost, base+"/api/vcenter/session", nil, body, nil)
+	if err != nil {
+		return esxiLoginResult{restHint: "REST 登录请求失败：" + shortErr(err)}
+	}
+	var parse struct {
+		Value string `json:"value"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Data    string `json:"data"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(rb, &parse) == nil && parse.Value != "" {
+		return esxiLoginResult{session: parse.Value}
+	}
+	// /api 返回 JSON-RPC 错误说明这个路径上跑的不是 REST API（老版 vCenter 在此
+	// 挂载 MOB 分派器），跟密码无关，直接判定为版本不支持。
+	if parse.Error != nil && (parse.Error.Code != 0 || parse.Error.Message != "") {
+		return esxiLoginResult{restHint: fmt.Sprintf(
+			"/api 返回 JSON-RPC 错误 %d %s（%s），说明该版本不提供 vSphere REST API",
+			parse.Error.Code, parse.Error.Message, parse.Error.Data)}
+	}
+	return esxiLoginResult{restHint: fmt.Sprintf("REST 登录返回 HTTP %d，响应：%s", code, hvTruncate(rb))}
+}
+
+// esxiBasicProbe 访问 vSphere Web 服务，返回状态码（0 = 请求失败）
+func esxiBasicProbe(base, user, pwd string) int {
+	req, err := http.NewRequest(http.MethodGet, base+"/folder", nil)
+	if err != nil {
+		return 0
+	}
+	if user != "" {
+		req.SetBasicAuth(user, pwd)
+	}
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("User-Agent", "ops-center-hypervisor")
+	resp, err := hvClient.Do(req)
+	if err != nil {
+		return 0
+	}
+	resp.Body.Close()
+	return resp.StatusCode
+}
+
+// esxiBasicAuthCheck 老版 vSphere 用 HTTP Basic 就能进 Web 服务，
+// 200 = 凭据正确，401 = 密码错。用它在不支持 REST 的版本上验证凭据。
+// 先探一次无凭据请求，确认端点真的在校验认证，否则 200 没有判别力。
+func esxiBasicAuthCheck(base, user, pwd string) (bool, string) {
+	if ctrl := esxiBasicProbe(base, "", ""); ctrl >= 200 && ctrl < 400 {
+		return false, "该主机的 Web 端点未启用认证，无法用它校验密码"
+	}
+	got := esxiBasicProbe(base, user, pwd)
+	switch {
+	case got == 0:
+		return false, "Basic 认证请求失败"
+	case got == http.StatusOK:
+		return true, ""
+	case got == http.StatusUnauthorized:
+		return false, ""
+	default:
+		return false, fmt.Sprintf("Web 端点返回 HTTP %d，无法判定", got)
+	}
+}
+
+// esxiProductHint 从欢迎页猜一下产品与版本，写进结果里便于用户判断
+func esxiProductHint(base string) string {
+	rb, code, err := doHvRequest(http.MethodGet, base+"/", nil, nil, nil)
+	if err != nil || code != http.StatusOK {
+		return ""
+	}
+	s := string(rb)
+	if m := regexp.MustCompile(`vsphere[/_-]?(\d{2})`).FindStringSubmatch(s); m != nil {
+		return "vSphere/vCenter " + m[1][:1] + "." + m[1][1:]
+	}
+	if m := regexp.MustCompile(`(?i)VMware vSphere ([0-9]+(?:\.[0-9]+)?)`).FindStringSubmatch(s); m != nil {
+		return "vSphere/vCenter " + m[1]
+	}
+	if strings.Contains(s, "ESXi") || strings.Contains(s, "esxi") {
+		return "ESXi（版本未知）"
+	}
+	if strings.Contains(s, "vSphere") {
+		return "vSphere/vCenter"
+	}
+	return ""
+}
+
+// probeESXi 先走 REST（6.7+），不通就用 Basic 认证验证凭据并给出可行动说明
 func probeESXi(h *models.HypervisorHost, pwd string) *HvnResult {
 	res := &HvnResult{HostID: h.ID, Reachable: true}
 	base := hvBase(h)
 
-	// 登录：POST /api/vcenter/session
-	body, _ := json.Marshal(map[string]string{"username": h.Username, "password": pwd})
-	rb, code, err := doHvRequest(http.MethodPost, base+"/api/vcenter/session", nil, body, nil)
-	if err != nil {
-		res.Message = "请求失败：" + shortErr(err)
+	login := esxiLogin(base, h.Username, pwd)
+	if login.session != "" {
+		return esxiCollect(base, h, login.session)
+	}
+
+	product := esxiProductHint(base)
+	prefix := ""
+	if product != "" {
+		prefix = fmt.Sprintf("%s ", product)
+	}
+	restNote := prefix + "不支持 vSphere REST API（REST 自 ESXi 6.7 / vCenter 6.7 起提供），无法采集资源与虚拟机清单，请用「控制台」直接打开 vSphere 客户端。"
+
+	ok, note := esxiBasicAuthCheck(base, h.Username, pwd)
+	if ok {
+		res.AuthOK = true
+		res.Server = &HvnServer{
+			Name:    h.Name,
+			IP:      h.IP,
+			Version: product,
+			Notes:   []string{restNote},
+		}
+		res.Message = fmt.Sprintf("认证通过：%s 的密码正确（HTTP Basic 认证已验证）。%s", h.Username, restNote)
 		return res
 	}
-	if code != http.StatusOK {
-		res.Message = fmt.Sprintf("认证失败（HTTP %d）：用户 %s 密码错误或该版本不支持 ESXi REST API", code, h.Username)
-		return res
+
+	if note == "" {
+		res.Message = fmt.Sprintf("认证失败：Web 端点拒绝了用户名 %s 的密码（HTTP 401）。%s", h.Username, restNote)
+	} else {
+		res.Message = fmt.Sprintf("无法验证凭据：%s。%s", note, restNote)
 	}
-	var sess struct {
-		Value string `json:"value"`
-	}
-	if err := json.Unmarshal(rb, &sess); err != nil || sess.Value == "" {
-		res.Message = "认证响应解析失败"
-		return res
-	}
-	res.AuthOK = true
-	hdr := map[string]string{"X-Vmware-Vcenter-Session": sess.Value}
+	return res
+}
+
+// esxiCollect REST 登录成功后的资源与虚拟机清单采集
+func esxiCollect(base string, h *models.HypervisorHost, session string) *HvnResult {
+	res := &HvnResult{HostID: h.ID, Reachable: true, AuthOK: true}
+	hdr := map[string]string{"X-Vmware-Vcenter-Session": session}
 
 	// 主机信息
-	rb, code, err = doHvRequest(http.MethodGet, base+"/api/vcenter/host", hdr, nil, nil)
+	rb, code, err := doHvRequest(http.MethodGet, base+"/api/vcenter/host", hdr, nil, nil)
 	if err != nil || code != http.StatusOK {
 		res.Server = &HvnServer{Name: h.Name, IP: h.IP}
 		res.Message = "已认证，但读取主机信息失败"
@@ -259,6 +373,7 @@ func probeESXi(h *models.HypervisorHost, pwd string) *HvnResult {
 		srv.Notes = append(srv.Notes, "虚拟机清单读取失败："+verr)
 	}
 	res.Nodes = []HvnNode{{Name: srv.Name, Server: *srv, VMs: vms}}
+	res.Message = "认证成功"
 	return res
 }
 

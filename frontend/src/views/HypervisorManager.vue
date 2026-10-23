@@ -127,6 +127,21 @@
         <el-alert :title="inv.message || '连接失败'" type="error" show-icon :closable="false" />
       </div>
 
+      <div v-else-if="inv && inv.server && !inv.nodes">
+        <el-alert :title="inv.message || '认证通过，但无法采集清单'" type="warning" show-icon
+          :closable="false" style="margin-bottom: 15px;" />
+        <el-descriptions :column="2" border size="small" style="max-width: 760px;">
+          <el-descriptions-item label="主机名称">{{ inv.server.name || invTitle }}</el-descriptions-item>
+          <el-descriptions-item label="产品 / 版本">{{ inv.server.version || '未获取' }}</el-descriptions-item>
+          <el-descriptions-item label="地址"><span class="mono">{{ inv.server.ip || invTitle }}</span></el-descriptions-item>
+          <el-descriptions-item label="状态">{{ inv.server.state ? stateText(inv.server.state) : '在线' }}</el-descriptions-item>
+        </el-descriptions>
+        <div v-if="inv.server.notes && inv.server.notes.length" style="margin-top: 15px;">
+          <el-tag v-for="(note, i) in inv.server.notes" :key="i" size="small" effect="plain"
+            style="margin-right: 8px; max-width: 720px;">{{ note }}</el-tag>
+        </div>
+      </div>
+
       <div v-else-if="inv && inv.nodes && inv.nodes.length">
         <el-tabs type="border-card">
           <el-tab-pane v-for="n in inv.nodes" :key="n.name" :label="n.name">
@@ -228,8 +243,11 @@
       :title="consoleHost ? `管理控制台 - ${consoleHost.name} (${consoleHost.ip})` : '管理控制台'">
 
       <div v-if="!consoleAuthed">
-        <el-alert title="密码加密存储，普通用户不可见。请输入您的登录密码进行身份验证，验证通过后获取主机密码并打开厂商 Web 控制台。"
+        <el-alert title="密码加密存储，普通用户不可见。请输入您的登录密码进行身份验证，验证通过后获取主机密码并打开厂商 Web 控制台。若页面未自动填充账号密码（部分厂商客户端不支持），请在页面内手动输入。"
           type="warning" show-icon :closable="false" style="margin-bottom: 15px;" />
+        <el-alert v-if="consoleIsVsphere"
+          title="该主机是 vSphere / vCenter：首页是入口页，没有可直接填写的登录框。请在打开的页面里点进 vSphere 客户端再输入账号密码。"
+          type="info" show-icon :closable="false" style="margin-bottom: 15px;" />
         <el-form label-width="90px" @submit.prevent>
           <el-form-item label="登录密码">
             <el-input v-model="consolePwd" type="password" show-password placeholder="您的 OpsCenter 登录密码"
@@ -250,7 +268,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus, Refresh, TopRight } from '@element-plus/icons-vue'
@@ -374,11 +392,14 @@ const handleTest = async (row) => {
   row.__testing = true
   try {
     const res = await hypervisorAPI.test(row.id)
-    if (res.auth_ok) {
-      ElMessage.success(`连接成功：${res.nodes ? res.nodes.length : 0} 个节点，` +
-        `${(res.nodes || []).reduce((s, n) => s + (n.vms || []).length, 0)} 个实例`)
+    if (res.auth_ok && res.nodes && res.nodes.length) {
+      ElMessage.success(`连接成功：${res.nodes.length} 个节点，` +
+        `${res.nodes.reduce((s, n) => s + (n.vms || []).length, 0)} 个实例`)
+    } else if (res.auth_ok) {
+      // 密码是对的，但这个版本拿不到清单 —— 把原因显示出来，别让用户误以为密码错
+      ElMessage.warning({ message: res.message || '认证通过，但该版本不支持清单采集', duration: 10000 })
     } else {
-      ElMessage.warning(res.message || '连接失败')
+      ElMessage.warning({ message: res.message || '连接失败', duration: 10000 })
     }
     loadHosts()
   } catch (e) {
@@ -427,6 +448,10 @@ const consoleAuthed = ref(false)
 const consoleSrc = ref('')
 const consoleHost = ref(null)
 
+// 用户名带 @domain（如 administrator@vsphere.local）可判定为 vSphere / vCenter
+const consoleIsVsphere = computed(() =>
+  !!consoleHost.value && String(consoleHost.value.username || '').indexOf('@') >= 0)
+
 const openConsole = (row) => {
   consoleHost.value = row
   consolePwd.value = ''
@@ -470,7 +495,7 @@ const statusOf = (row) => {
     case 'online': return { kind: 'active', text: '在线', color: '#67C23A' }
     case 'auth_failed': return { kind: 'unreachable', text: '认证失败', color: '#E6A23C' }
     case 'offline': return { kind: 'offline', text: '离线', color: '#F56C6C' }
-    default: return { kind: 'busy', text: '未知', color: '#909399' }
+    default: return { kind: 'unknown', text: '未知', color: '#909399' }
   }
 }
 
@@ -500,7 +525,20 @@ const uptimeText = (sec) => {
   return `${m} 分钟`
 }
 
-loadHosts()
+// 两个路由（/hypervisors/esxi 与 /hypervisors/pve）共用本组件，Vue Router 会复用
+// 组件实例，setup 顶层的调用只执行一次。所以必须在 type 变化时重新拉取，
+// 否则从 ESXi 切到 PVE 时表格里还留着 ESXi 的行。
+const onTypeChange = () => {
+  dialogVisible.value = false
+  invVisible.value = false
+  inv.value = null
+  form.id = 0
+  form.type = type.value
+  form.realm = type.value === 'pve' ? 'pam' : ''
+  loadHosts()
+}
+onMounted(loadHosts)
+watch(type, onTypeChange)
 </script>
 
 <style scoped>
