@@ -15,27 +15,32 @@ const routes = [
       {
         path: 'dashboard',
         name: 'Dashboard',
-        component: () => import('../views/Dashboard.vue')
+        component: () => import('../views/Dashboard.vue'),
+        meta: { title: '仪表盘' }
       },
       {
         path: 'servers',
         name: 'ServerList',
-        component: () => import('../views/servers/ServerList.vue')
+        component: () => import('../views/servers/ServerList.vue'),
+        meta: { title: '服务器管理' }
       },
       {
         path: 'servers/add',
         name: 'ServerAdd',
-        component: () => import('../views/servers/ServerForm.vue')
+        component: () => import('../views/servers/ServerForm.vue'),
+        meta: { title: '添加服务器' }
       },
       {
         path: 'servers/:id',
         name: 'ServerDetail',
-        component: () => import('../views/servers/ServerDetail.vue')
+        component: () => import('../views/servers/ServerDetail.vue'),
+        meta: { title: '服务器详情' }
       },
       {
         path: 'servers/:id/edit',
         name: 'ServerEdit',
-        component: () => import('../views/servers/ServerForm.vue')
+        component: () => import('../views/servers/ServerForm.vue'),
+        meta: { title: '编辑服务器' }
       },
       {
         path: 'groups',
@@ -98,6 +103,12 @@ const routes = [
         meta: { title: 'PVE 管理', hvType: 'pve' }
       },
       {
+        path: 'free-ip',
+        name: 'FreeIPManager',
+        component: () => import('../views/FreeIPManager.vue'),
+        meta: { title: '空闲 IP' }
+      },
+      {
         path: 'docs',
         name: 'ApiDocumentation',
         component: () => import('../views/ApiDocumentation.vue'),
@@ -108,6 +119,18 @@ const routes = [
         name: 'SystemSettings',
         component: () => import('../views/SystemSettings.vue'),
         meta: { title: '系统设置' }
+      },
+      {
+        path: 'users',
+        name: 'UserManager',
+        component: () => import('../views/UserManager.vue'),
+        meta: { title: '用户管理', adminOnly: true }
+      },
+      {
+        path: 'audit',
+        name: 'AuditLogs',
+        component: () => import('../views/AuditLogs.vue'),
+        meta: { title: '访问日志', adminOnly: true }
       }
     ]
   }
@@ -121,12 +144,20 @@ const router = createRouter({
 // 路由守卫
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
-  
+
   if (to.path !== '/login' && !token) {
     next('/login')
   } else if (to.path === '/login' && token) {
     next('/')
   } else {
+    // 管理员专属页面：非 admin 直接回仪表盘
+    if (to.meta?.adminOnly) {
+      const user = JSON.parse(localStorage.getItem('user') || '{}')
+      if (user.role !== 'admin') {
+        next('/dashboard')
+        return
+      }
+    }
     next()
   }
 })

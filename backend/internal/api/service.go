@@ -18,6 +18,10 @@ func GetServerServicesHandler(c *gin.Context) {
 		return
 	}
 
+	if !serverAccessGuard(c, serverID, false) {
+		return
+	}
+
 	services, err := models.GetServicesByServer(serverID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取服务列表失败"})
@@ -38,9 +42,12 @@ func CreateServiceHandler(c *gin.Context) {
 		return
 	}
 
-	// 校验服务器存在
+	// 校验服务器存在 + 授权（写）
 	if _, err := models.GetServerByID(serverID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "服务器不存在"})
+		return
+	}
+	if !serverAccessGuard(c, serverID, true) {
 		return
 	}
 
@@ -82,6 +89,11 @@ func UpdateServiceHandler(c *gin.Context) {
 		return
 	}
 
+	// 按所属服务器校验授权（写）
+	if !serverAccessGuard(c, existing.ServerID, true) {
+		return
+	}
+
 	var s models.ServerService
 	if err := c.ShouldBindJSON(&s); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
@@ -110,6 +122,17 @@ func DeleteServiceHandler(c *gin.Context) {
 		return
 	}
 
+	existing, err := models.GetServiceByID(serviceID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "服务不存在"})
+		return
+	}
+
+	// 按所属服务器校验授权（写）
+	if !serverAccessGuard(c, existing.ServerID, true) {
+		return
+	}
+
 	if err := models.DeleteService(serviceID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除服务失败"})
 		return
@@ -128,6 +151,11 @@ func TestServiceHandler(c *gin.Context) {
 	s, err := models.GetServiceByID(serviceID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "服务不存在"})
+		return
+	}
+
+	// 按所属服务器校验授权（读）
+	if !serverAccessGuard(c, s.ServerID, false) {
 		return
 	}
 
@@ -183,14 +211,14 @@ func TestServiceHandler(c *gin.Context) {
 	total, okCount, rate, _ := models.GetServiceConnectivity(s.ID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"ok":               result.OK,
-		"output":           result.Output,
-		"status":           newStatus,
-		"response_time_ms": result.ResponseTime,
-		"version":          result.Version,
+		"ok":                result.OK,
+		"output":            result.Output,
+		"status":            newStatus,
+		"response_time_ms":  result.ResponseTime,
+		"version":           result.Version,
 		"connectivity_rate": rate,
-		"total_checks":     total,
-		"success_checks":   okCount,
+		"total_checks":      total,
+		"success_checks":    okCount,
 	})
 }
 
@@ -205,6 +233,11 @@ func GetServiceDetailHandler(c *gin.Context) {
 	s, err := models.GetServiceByID(serviceID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "服务不存在"})
+		return
+	}
+
+	// 按所属服务器校验授权（读）
+	if !serverAccessGuard(c, s.ServerID, false) {
 		return
 	}
 
@@ -226,11 +259,11 @@ func GetServiceDetailHandler(c *gin.Context) {
 	total, success, rate, _ := models.GetServiceConnectivity(serviceID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"service":          s,
+		"service":           s,
 		"connectivity_rate": rate,
-		"total_checks":     total,
-		"success_checks":   success,
-		"checks":           checks,
+		"total_checks":      total,
+		"success_checks":    success,
+		"checks":            checks,
 	})
 }
 

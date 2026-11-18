@@ -1,3 +1,14 @@
 node_modules/
 dist/
 *.log
+backend/data/
+backend/ops-center
+backend/ops-center-new
+backend/mcp-server
+backend/frontend-dist
+frontend-dist/
+*.db
+*.db-shm
+*.db-wal
+*.pyc
+__pycache__/

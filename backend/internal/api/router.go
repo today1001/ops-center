@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"ops-center/internal/models"
 	"ops-center/internal/services"
 )
 
@@ -29,6 +30,9 @@ func Run() {
 
 		c.Next()
 	})
+
+	// 全局访问日志（audit_logs）
+	r.Use(AccessLogMiddleware())
 
 	// 公开路由
 	public := r.Group("/api")
@@ -55,11 +59,11 @@ func Run() {
 		auth.GET("/servers/:id/detail", GetServerDetailHandler)
 		auth.POST("/servers/:id/refresh", RefreshServerHandler)
 
-		// 分组管理
+		// 分组管理（创建/修改/删除仅管理员）
 		auth.GET("/groups", GetGroupsHandler)
-		auth.POST("/groups", CreateGroupHandler)
-		auth.PUT("/groups/:id", UpdateGroupHandler)
-		auth.DELETE("/groups/:id", DeleteGroupHandler)
+		auth.POST("/groups", RequireRolesMW(models.RoleAdmin), CreateGroupHandler)
+		auth.PUT("/groups/:id", RequireRolesMW(models.RoleAdmin), UpdateGroupHandler)
+		auth.DELETE("/groups/:id", RequireRolesMW(models.RoleAdmin), DeleteGroupHandler)
 
 		// 服务管理相关
 		auth.GET("/servers/:id/services", GetServerServicesHandler)
@@ -73,10 +77,10 @@ func Run() {
 		auth.GET("/servers/stats/resource", GetResourceStatsHandler)
 		auth.GET("/servers/stats/rankings", GetResourceRankingsHandler)
 
-		// 系统组件相关
+		// 系统组件相关（重启/停止仅管理员）
 		auth.GET("/system/components", GetSystemComponentsHandler)
-		auth.POST("/system/components/:name/restart", RestartComponentHandler)
-		auth.POST("/system/components/:name/stop", StopComponentHandler)
+		auth.POST("/system/components/:name/restart", RequireRolesMW(models.RoleAdmin), RestartComponentHandler)
+		auth.POST("/system/components/:name/stop", RequireRolesMW(models.RoleAdmin), StopComponentHandler)
 		auth.GET("/system/components/:name/logs", GetComponentLogsHandler)
 
 		// 系统测试（网络工具）
@@ -85,11 +89,11 @@ func Run() {
 		auth.POST("/system/test/dns", TestDNSHandler)
 		auth.POST("/system/test/http", TestHTTPHandler)
 
-		// 系统设置（端口列表）
+		// 系统设置（端口列表，增删改仅管理员/分组管理员）
 		auth.GET("/settings/ports", GetPortProfilesHandler)
-		auth.POST("/settings/ports", CreatePortProfileHandler)
-		auth.PUT("/settings/ports/:id", UpdatePortProfileHandler)
-		auth.DELETE("/settings/ports/:id", DeletePortProfileHandler)
+		auth.POST("/settings/ports", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), CreatePortProfileHandler)
+		auth.PUT("/settings/ports/:id", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), UpdatePortProfileHandler)
+		auth.DELETE("/settings/ports/:id", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), DeletePortProfileHandler)
 
 		// 工具模块
 		auth.GET("/tools/web-services", GetWebServicesHandler)
@@ -102,45 +106,81 @@ func Run() {
 
 		// 虚拟网络
 		auth.GET("/vnet/networks", GetVnetNetworksHandler)
-		auth.POST("/vnet/networks", CreateVnetNetworkHandler)
-		auth.PUT("/vnet/networks/:id", UpdateVnetNetworkHandler)
-		auth.DELETE("/vnet/networks/:id", DeleteVnetNetworkHandler)
+		auth.POST("/vnet/networks", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), CreateVnetNetworkHandler)
+		auth.PUT("/vnet/networks/:id", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), UpdateVnetNetworkHandler)
+		auth.DELETE("/vnet/networks/:id", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), DeleteVnetNetworkHandler)
 		auth.GET("/vnet/peers", GetVnetPeersHandler)
 		auth.POST("/vnet/sync", VnetSyncHandler)
-		auth.POST("/vnet/join", VnetJoinOrCreateHandler)
-		auth.POST("/vnet/instance/stop", VnetStopInstanceHandler)
-		auth.POST("/vnet/instance/delete", VnetDeleteInstanceHandler)
+		auth.POST("/vnet/join", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), VnetJoinOrCreateHandler)
+		auth.POST("/vnet/instance/stop", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), VnetStopInstanceHandler)
+		auth.POST("/vnet/instance/delete", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), VnetDeleteInstanceHandler)
 		auth.GET("/vnet/last-sync", GetLastVnetSyncHandler)
-		auth.POST("/vnet/bind", VnetBindHandler)
-		auth.POST("/vnet/unbind", VnetUnbindHandler)
+		auth.POST("/vnet/bind", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), VnetBindHandler)
+		auth.POST("/vnet/unbind", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), VnetUnbindHandler)
 		auth.GET("/servers/:id/virtual", VnetServerVirtualHandler)
 		// 虚拟化主机（ESXi / PVE）
 		auth.GET("/hypervisors", ListHypervisorHandler)
-		auth.POST("/hypervisors", CreateHypervisorHandler)
-		auth.PUT("/hypervisors/:id", UpdateHypervisorHandler)
-		auth.DELETE("/hypervisors/:id", DeleteHypervisorHandler)
+		auth.POST("/hypervisors", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), CreateHypervisorHandler)
+		auth.PUT("/hypervisors/:id", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), UpdateHypervisorHandler)
+		auth.DELETE("/hypervisors/:id", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), DeleteHypervisorHandler)
 		auth.POST("/hypervisors/:id/test", TestHypervisorHandler)
 		auth.GET("/hypervisors/:id/inventory", HostInventoryHandler)
 		auth.POST("/hypervisors/:id/password", GetHypervisorPasswordHandler)
 
-		// 救援控制台 API
+		// 救援控制台 API（高危操作仅管理员）
 		auth.GET("/rescue/status", RescueStatusHandler)
-		auth.POST("/rescue/backup-db", RescueBackupDBHandler)
+		auth.POST("/rescue/backup-db", RequireRolesMW(models.RoleAdmin), RescueBackupDBHandler)
 		auth.GET("/rescue/log", RescueLogHandler)
-		auth.POST("/rescue/restart", RescueRestartHandler)
-		auth.POST("/rescue/fix-assets", RescueFixAssetsHandler)
+		auth.POST("/rescue/restart", RequireRolesMW(models.RoleAdmin), RescueRestartHandler)
+		auth.POST("/rescue/fix-assets", RequireRolesMW(models.RoleAdmin), RescueFixAssetsHandler)
 
 		// RDP远程桌面
 		auth.POST("/tools/rdp/session", CreateRDPSessionHandler)
+
+		// 空闲 IP 管理
+		auth.GET("/free/ips", GetFreeIPsHandler)
+		auth.POST("/free/ips/add", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin), AddFreeIPsHandler)
+		// 空闲 IP 定时扫描（结果落库）
+		auth.GET("/free/scan-config", GetFreeScanConfigHandler)
+		auth.POST("/free/scan-config", RequireRolesMW(models.RoleAdmin), SetFreeScanConfigHandler)
+		auth.GET("/free/records", GetFreeRecordsHandler)
+
+		// 空闲端口管理
+		auth.GET("/servers/:id/free-ports", ScanServerPortsHandler)
+		auth.POST("/servers/:id/free-ports/add", RequireRolesMW(models.RoleAdmin, models.RoleGroupAdmin, models.RoleServerAdmin), AddServerPortsHandler)
+
+		// MCP 管理（系统管理，仅管理员）
+		auth.GET("/mcp/status", RequireRolesMW(models.RoleAdmin), McpStatusHandler)
+		auth.GET("/mcp/config", RequireRolesMW(models.RoleAdmin), McpGetConfigHandler)
+		auth.POST("/mcp/levels", RequireRolesMW(models.RoleAdmin), McpSetLevelsHandler)
+		auth.POST("/mcp/actions", RequireRolesMW(models.RoleAdmin), McpSetActionsHandler)
+		auth.POST("/mcp/tokens", RequireRolesMW(models.RoleAdmin), McpAddTokenHandler)
+		auth.POST("/mcp/tokens/revoke", RequireRolesMW(models.RoleAdmin), McpRevokeTokenHandler)
+		auth.GET("/mcp/audit", RequireRolesMW(models.RoleAdmin), McpAuditHandler)
+
+		// 用户与权限管理（仅管理员）
+		admin := auth.Group("/admin", RequireRoleAdmin())
+		{
+			admin.GET("/users", ListAdminUsersHandler)
+			admin.POST("/users", CreateAdminUserHandler)
+			admin.PUT("/users/:id", UpdateAdminUserHandler)
+			admin.DELETE("/users/:id", DeleteAdminUserHandler)
+			admin.GET("/users/:id/permissions", GetUserPermissionsHandler)
+			admin.POST("/users/:id/groups", GrantUserGroupsHandler)
+			admin.DELETE("/users/:id/groups/:gid", RevokeUserGroupHandler)
+			admin.POST("/users/:id/servers", GrantUserServersHandler)
+			admin.DELETE("/users/:id/servers/:sid", RevokeUserServerHandler)
+			admin.GET("/audit", GetAuditLogsHandler)
+		}
 	}
 
-		// 救援控制台页面（不依赖前端构建产物，主界面白屏时也可用）
+	// 救援控制台页面（不依赖前端构建产物，主界面白屏时也可用）
 	r.GET("/rescue.html", RescuePageHandler)
 
 	// 虚拟网络后台同步
 	go services.StartVnetSyncLoop()
 
-// Guacamole 反向代理（含 WebSocket 隧道）
+	// Guacamole 反向代理（含 WebSocket 隧道）
 	r.Any("/guac/*path", GuacProxyHandler)
 	r.Any("/guac", GuacProxyHandler)
 

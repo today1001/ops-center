@@ -37,6 +37,10 @@
           <el-icon><Connection /></el-icon>
           <span>{{ t('nav.vnet') }}</span>
         </el-menu-item>
+        <el-menu-item index="/free-ip">
+          <el-icon><Search /></el-icon>
+          <span>空闲IP</span>
+        </el-menu-item>
         <el-sub-menu index="/hypervisors">
           <template #title>
             <el-icon><Monitor /></el-icon>
@@ -77,6 +81,16 @@
           <el-icon><Document /></el-icon>
           <span>{{ t('nav.apiDocs') }}</span>
         </el-menu-item>
+        <template v-if="isAdmin">
+          <el-menu-item index="/users">
+            <el-icon><User /></el-icon>
+            <span>用户管理</span>
+          </el-menu-item>
+          <el-menu-item index="/audit">
+            <el-icon><Tickets /></el-icon>
+            <span>访问日志</span>
+          </el-menu-item>
+        </template>
       </el-menu>
     </el-aside>
     <el-container>
@@ -158,10 +172,10 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { 
-  Monitor, Connection, Operation, Setting, Tools, 
-  MagicStick, User, ArrowDown, FolderOpened, 
-  Sunny, Moon, Position, Document 
+import {
+  Monitor, Connection, Operation, Setting, Tools,
+  MagicStick, User, ArrowDown, FolderOpened,
+  Sunny, Moon, Position, Document, Tickets
 } from '@element-plus/icons-vue'
 import { themeStore, actualTheme, toggleTheme, setTheme } from '../theme.js'
 import { localeStore, availableLocales, toggleLocale, setLocale } from '../locale.js'
@@ -170,10 +184,12 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const username = ref('')
+const isAdmin = ref(false)
 
 onMounted(() => {
   const user = JSON.parse(localStorage.getItem('user') || '{}')
   username.value = user.username || 'Admin'
+  isAdmin.value = user.role === 'admin'
 })
 
 const handleCommand = (command) => {

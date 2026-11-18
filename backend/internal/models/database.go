@@ -33,7 +33,7 @@ func InitDB() error {
 		return err
 	}
 
-	db, err = sql.Open("sqlite3", dbPath)
+	db, err = sql.Open("sqlite3", dbPath+"?_busy_timeout=5000&_journal_mode=WAL")
 	if err != nil {
 		return err
 	}
@@ -53,6 +53,9 @@ func InitDB() error {
 		return err
 	}
 
+	// 审计日志异步写库队列
+	initAuditWorker()
+
 	return nil
 }
 
@@ -62,6 +65,7 @@ func CloseDB() {
 		db.Close()
 	}
 }
+
 
 // createTables 创建数据库表
 func createTables() error {
@@ -231,6 +235,57 @@ func createTables() error {
 	// 填充默认端口列表
 	seedDefaultPortProfiles()
 
+	// 分级权限：授权关系表 + 审计日志表
+	if err := createPermTables(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// createPermTables 创建分级权限相关表
+// user_groups  用户-分组授权（分组管理员可见组内全部服务器）
+// user_servers 用户-服务器直接授权
+// audit_logs   访问/审计日志
+func createPermTables() error {
+	permTables := []string{
+		`CREATE TABLE IF NOT EXISTS user_groups (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			group_id INTEGER NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, group_id)
+		);`,
+		`CREATE TABLE IF NOT EXISTS user_servers (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			server_id INTEGER NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, server_id)
+		);`,
+		`CREATE TABLE IF NOT EXISTS audit_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER,
+			username TEXT,
+			action TEXT,
+			method TEXT,
+			path TEXT,
+			ip TEXT,
+			status INTEGER,
+			duration_ms INTEGER,
+			detail TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);`,
+	}
+	for _, t := range permTables {
+		if _, err := db.Exec(t); err != nil {
+			return err
+		}
+	}
+	// 防御性修复：历史数据里 email 为 NULL 会导致登录扫描失败
+	db.Exec("UPDATE users SET email = '' WHERE email IS NULL")
 	return nil
 }
 
@@ -821,5 +876,9 @@ func GetServerDecryptedPassword(id int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return DecryptPassword(password), nil
+	return DecryptPassword(password), nil	}
+
+// GetDB 返回数据库连接
+func GetDB() *sql.DB {
+	return db
 }

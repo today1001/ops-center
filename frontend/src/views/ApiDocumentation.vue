@@ -404,6 +404,27 @@ const apiGroups = [
       { method: 'POST', path: '/api/rescue/fix-assets', desc: '修复前端静态资源（白屏应急）' },
       { method: '静态页', path: '/rescue.html', desc: '不依赖前端构建产物的救援页面，主界面白屏时也可用' }
     ]
+  },
+  {
+    name: '空闲 IP / 端口扫描',
+    apis: [
+      { method: 'GET', path: '/api/free/ips', desc: '扫描已有网段中在线但未登记为服务器的 IP（90 秒缓存，加 ?force=1 强制重扫）' },
+      { method: 'POST', path: '/api/free/ips/add', desc: '把 IP 批量登记为受管服务器（幂等，已存在自动跳过）', body: `{ "ips": ["10.10.10.50", "10.10.10.218"], "group": "web" }` },
+      { method: 'GET', path: '/api/servers/:id/free-ports', desc: 'SSH 到目标服务器扫描 TCP 监听端口（需该服务器已配置 SSH 凭据）', params: [{ name: 'id', desc: '服务器 ID' }] },
+      { method: 'POST', path: '/api/servers/:id/free-ports/add', desc: '把扫描到的端口批量登记为服务（幂等）', params: [{ name: 'id', desc: '服务器 ID' }], body: `{ "ports": [22, 443] }` }
+    ]
+  },
+  {
+    name: 'MCP 管理（管理员）',
+    apis: [
+      { method: 'GET', path: '/api/mcp/status', desc: 'MCP 服务运行状态（运行中/PID/监听地址/级别开关/令牌数/审计条数）' },
+      { method: 'GET', path: '/api/mcp/config', desc: '查看 MCP 配置：级别开关 + 令牌列表（key 明文仅管理员可见）' },
+      { method: 'POST', path: '/api/mcp/levels', desc: '设置危险等级开关 L0-L3（热加载立即生效，L3 删除/高危默认禁用）', body: `{ "L0": true, "L1": true, "L2": true, "L3": false }` },
+      { method: 'POST', path: '/api/mcp/actions', desc: '写入类总开关（false 时 L2 及以上全部拒绝）', body: `{ "enabled": false }` },
+      { method: 'POST', path: '/api/mcp/tokens', desc: '新建访问令牌（key 仅返回一次；max_level 限定该令牌可调用的最高危险等级）', body: `{ "remark": "监控智能体", "max_level": "L1" }` },
+      { method: 'POST', path: '/api/mcp/tokens/revoke', desc: '吊销令牌（至少保留一个）', body: `{ "key": "<完整 key>" }` },
+      { method: 'GET', path: '/api/mcp/audit', desc: '审计日志最近 N 条（?lines=100，含被拒绝的调用记录）' }
+    ]
   }
 ]
 

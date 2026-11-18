@@ -11,11 +11,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// GetServersHandler 获取服务器列表
+// GetServersHandler 获取服务器列表（按角色/授权范围过滤）
 func GetServersHandler(c *gin.Context) {
-	userID, _ := c.Get("userID")
-
-	servers, err := models.GetServers(userID.(int))
+	servers, err := models.GetServersForUser(currentRole(c), currentUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取服务器列表失败"})
 		return
@@ -57,6 +55,10 @@ func GetServerHandler(c *gin.Context) {
 		return
 	}
 
+	if !serverAccessGuard(c, id, false) {
+		return
+	}
+
 	server, err := models.GetServerByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "服务器不存在"})
@@ -82,6 +84,10 @@ func GetServerDetailHandler(c *gin.Context) {
 		return
 	}
 
+	if !serverAccessGuard(c, id, false) {
+		return
+	}
+
 	detail, err := models.GetServerDetail(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "服务器详情不存在"})
@@ -93,14 +99,17 @@ func GetServerDetailHandler(c *gin.Context) {
 
 // CreateServerHandler 创建服务器
 func CreateServerHandler(c *gin.Context) {
+	if !requireRoles(c, models.RoleAdmin, models.RoleGroupAdmin) {
+		return
+	}
+
 	var server models.Server
 	if err := c.ShouldBindJSON(&server); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
 	}
 
-	userID, _ := c.Get("userID")
-	server.CreatedBy = userID.(int)
+	server.CreatedBy = currentUserID(c)
 
 	if server.Port == 0 {
 		server.Port = 22
@@ -132,35 +141,39 @@ func CreateServerHandler(c *gin.Context) {
 
 // CreateServersBatchHandler 批量创建服务器
 func CreateServersBatchHandler(c *gin.Context) {
+	if !requireRoles(c, models.RoleAdmin, models.RoleGroupAdmin) {
+		return
+	}
+
 	var request struct {
 		Servers []models.Server `json:"servers" binding:"required"`
 	}
-	
+
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
 	}
 
-	userID, _ := c.Get("userID")
-	
+	userID := currentUserID(c)
+
 	var created []models.Server
 	var errors []string
-	
+
 	for _, server := range request.Servers {
-		server.CreatedBy = userID.(int)
-		
+		server.CreatedBy = userID
+
 		if server.Port == 0 {
 			server.Port = 22
 		}
 		if server.Status == "" {
 			server.Status = "active"
 		}
-		
+
 		if err := models.CreateServer(&server); err != nil {
 			errors = append(errors, server.IP+": 创建失败")
 			continue
 		}
-		
+
 		created = append(created, server)
 
 		// 自动创建默认服务（Linux→SSH，Windows→RDP）
@@ -174,7 +187,7 @@ func CreateServersBatchHandler(c *gin.Context) {
 			services.TestAndCollectServerInfo(&s)
 		}(server)
 	}
-	
+
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "批量创建完成",
 		"total":   len(created),
@@ -187,6 +200,10 @@ func UpdateServerHandler(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的服务器ID"})
+		return
+	}
+
+	if !serverAccessGuard(c, id, true) {
 		return
 	}
 
@@ -235,6 +252,10 @@ func DeleteServerHandler(c *gin.Context) {
 		return
 	}
 
+	if !serverAccessGuard(c, id, true) {
+		return
+	}
+
 	if err := models.DeleteServer(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除服务器失败"})
 		return
@@ -251,6 +272,10 @@ func TestServerConnectionHandler(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的服务器ID"})
+		return
+	}
+
+	if !serverAccessGuard(c, id, false) {
 		return
 	}
 
@@ -276,6 +301,10 @@ func RefreshServerHandler(c *gin.Context) {
 		return
 	}
 
+	if !serverAccessGuard(c, id, false) {
+		return
+	}
+
 	server, err := models.GetServerByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "服务器不存在"})
@@ -290,11 +319,9 @@ func RefreshServerHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "开始刷新"})
 }
 
-// CollectMissingDetailsHandler 采集缺失详情的服务器
+// CollectMissingDetailsHandler 采集缺失详情的服务器（仅授权范围内）
 func CollectMissingDetailsHandler(c *gin.Context) {
-	userID, _ := c.Get("userID")
-
-	servers, err := models.GetServersWithCreds(userID.(int))
+	servers, err := models.GetServersWithCredsForUser(currentRole(c), currentUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取服务器列表失败"})
 		return
@@ -324,11 +351,9 @@ func CollectMissingDetailsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "开始采集缺失详情", "total": len(missing)})
 }
 
-// RefreshAllServersHandler 刷新所有服务器信息
+// RefreshAllServersHandler 刷新所有服务器信息（仅授权范围内）
 func RefreshAllServersHandler(c *gin.Context) {
-	userID, _ := c.Get("userID")
-
-	servers, err := models.GetServersWithCreds(userID.(int))
+	servers, err := models.GetServersWithCredsForUser(currentRole(c), currentUserID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取服务器列表失败"})
 		return
@@ -344,7 +369,6 @@ func RefreshAllServersHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "开始刷新所有服务器", "total": len(servers)})
 }
 
-
 // GetAdminPassword 管理员输入本人密码验证身份后，返回指定服务器的明文密码
 func GetAdminPassword(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
@@ -353,13 +377,16 @@ func GetAdminPassword(c *gin.Context) {
 		return
 	}
 
-	role, _ := c.Get("role")
-	if role != "admin" {
+	if !serverAccessGuard(c, id, false) {
+		return
+	}
+
+	if currentRole(c) != models.RoleAdmin {
 		c.JSON(http.StatusForbidden, gin.H{"error": "仅管理员可查看明文密码"})
 		return
 	}
 
-	userID, _ := c.Get("userID")
+	userID := currentUserID(c)
 	var req struct {
 		Password string `json:"password" binding:"required"`
 	}
@@ -368,7 +395,7 @@ func GetAdminPassword(c *gin.Context) {
 		return
 	}
 
-	user, err := models.GetUserByID(userID.(int))
+	user, err := models.GetUserByID(userID)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户不存在"})
 		return

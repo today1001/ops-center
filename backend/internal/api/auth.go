@@ -13,15 +13,28 @@ import (
 func LoginHandler(c *gin.Context) {
 	var req models.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		models.LogAudit(models.AuditLog{
+			Username: req.Username, Action: "login_failed",
+			IP: c.ClientIP(), Detail: "请求参数错误",
+		})
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 		return
 	}
 
 	resp, err := services.Login(req.Username, req.Password)
 	if err != nil {
+		models.LogAudit(models.AuditLog{
+			Username: req.Username, Action: "login_failed",
+			IP: c.ClientIP(), Detail: err.Error(),
+		})
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
+
+	models.LogAudit(models.AuditLog{
+		UserID: resp.User.ID, Username: resp.User.Username, Action: "login",
+		IP: c.ClientIP(), Status: 200, Detail: "登录成功",
+	})
 
 	c.JSON(http.StatusOK, resp)
 }

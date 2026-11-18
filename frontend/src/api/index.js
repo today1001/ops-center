@@ -120,6 +120,17 @@ export const toolsAPI = {
   createRdpSession: (data) => api.post('/tools/rdp/session', data)
 }
 
+// 空闲 IP/端口 API
+export const freeAPI = {
+  getFreeIPs: (params) => api.get("/free/ips", { params }),
+  addFreeIPs: (data) => api.post("/free/ips/add", data),
+  scanServerPorts: (serverId) => api.get(`/servers/${serverId}/free-ports`),
+  addServerPorts: (serverId, data) => api.post(`/servers/${serverId}/free-ports/add`, data),
+  getScanConfig: () => api.get("/free/scan-config"),
+  setScanConfig: (data) => api.post("/free/scan-config", data),
+  getRecords: (params) => api.get("/free/records", { params })
+}
+
 // 虚拟化主机 API（ESXi / PVE）
 export const hypervisorAPI = {
   getList: (type) => api.get('/hypervisors', { params: { type } }),
@@ -129,6 +140,24 @@ export const hypervisorAPI = {
   test: (id) => api.post(`/hypervisors/${id}/test`),
   getInventory: (id) => api.get(`/hypervisors/${id}/inventory`),
   getPassword: (id, password) => api.post(`/hypervisors/${id}/password`, { password })
+}
+
+// 用户与权限管理 API（仅管理员）
+export const userAdminAPI = {
+  listUsers: () => api.get('/admin/users'),
+  createUser: (data) => api.post('/admin/users', data),
+  updateUser: (id, data) => api.put(`/admin/users/${id}`, data),
+  deleteUser: (id) => api.delete(`/admin/users/${id}`),
+  getPermissions: (id) => api.get(`/admin/users/${id}/permissions`),
+  grantGroups: (id, groupIds) => api.post(`/admin/users/${id}/groups`, { group_ids: groupIds }),
+  revokeGroup: (id, gid) => api.delete(`/admin/users/${id}/groups/${gid}`),
+  grantServers: (id, serverIds) => api.post(`/admin/users/${id}/servers`, { server_ids: serverIds }),
+  revokeServer: (id, sid) => api.delete(`/admin/users/${id}/servers/${sid}`)
+}
+
+// 审计/访问日志 API（仅管理员）
+export const auditAPI = {
+  list: (params) => api.get('/admin/audit', { params })
 }
 
 export default api
