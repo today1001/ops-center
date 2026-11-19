@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -22,13 +23,36 @@ import (
 // BackendVersion 后端构建版本（发布时 -ldflags 注入）
 var BackendVersion = "dev"
 
-// 升级源三个模块对应 update-server 的工作区
+// 升级源三个模块对应 update-server 的工作区（可配置，app_settings: upgrade_ws_<module>）
+// 默认适配实际部署：backend 独占 oc-backend；frontend/mcp 共用 ops-center
+// （latest 接口按工作区取最新文件，多模块共用时改用 history+文件名前缀过滤）
 var upgradeModules = []string{"backend", "frontend", "mcp"}
 
-var upgradeWorkspace = map[string]string{
+var defaultWorkspace = map[string]string{
 	"backend":  "oc-backend",
-	"frontend": "oc-frontend",
-	"mcp":      "oc-mcp",
+	"frontend": "ops-center",
+	"mcp":      "ops-center",
+}
+
+// modulePrefix 各模块发布文件名前缀（history 过滤用）
+var modulePrefix = map[string]string{
+	"backend":  "ops-center-",
+	"frontend": "frontend-",
+	"mcp":      "mcp-server-",
+}
+
+// GetUpgradeWorkspace 模块对应的工作区 code
+func GetUpgradeWorkspace(db *sql.DB, module string) string {
+	ws := settingGet(db, "upgrade_ws_" + module)
+	if ws == "" {
+		ws = defaultWorkspace[module]
+	}
+	return ws
+}
+
+// SetWorkspace 保存模块工作区映射
+func SetWorkspace(db *sql.DB, module, ws string) {
+	settingSet(db, "upgrade_ws_"+module, ws)
 }
 
 // 安装路径（相对 backend 工作目录）
@@ -205,7 +229,7 @@ type releaseMeta struct {
 // fetchLatest 获取模块最新版本元数据
 func fetchLatest(db *sql.DB, module string) (*releaseMeta, error) {
 	source := GetUpgradeSource(db)
-	ws := upgradeWorkspace[module]
+	ws := GetUpgradeWorkspace(db, module)
 
 	if len(source) > 6 && source[:6] == "local:" {
 		// local 源：<dir>/<module>/latest.json + 文件
@@ -222,9 +246,10 @@ func fetchLatest(db *sql.DB, module string) (*releaseMeta, error) {
 		return &m, nil
 	}
 
-	// update-server 模式
+	// update-server 模式：走公开 history 接口 + 模块文件名前缀过滤。
+	// （latest 接口按工作区取最新文件，多模块共用一个工作区会互相覆盖）
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("%s/%s/app/latest", trimSlash(source), ws))
+	resp, err := client.Get(fmt.Sprintf("%s/%s/app/history", trimSlash(source), ws))
 	if err != nil {
 		return nil, fmt.Errorf("连接升级源失败: %w", err)
 	}
@@ -232,14 +257,36 @@ func fetchLatest(db *sql.DB, module string) (*releaseMeta, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("升级源返回 %d（工作区 %s 可能未发布）", resp.StatusCode, ws)
 	}
-	var m releaseMeta
-	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+	var hr struct {
+		History []struct {
+			Filename  string `json:"filename"`
+			Version   string `json:"version"`
+			Download  string `json:"download"`
+			SHA256    string `json:"sha256"`
+			Size      int64  `json:"size"`
+			Updated   string `json:"updated"`
+			Changelog string `json:"changelog"`
+		} `json:"history"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&hr); err != nil {
 		return nil, err
 	}
-	if m.Version == "" {
-		return nil, fmt.Errorf("升级源未返回版本号")
+	// history 倒序，第一条匹配模块前缀的就是最新版
+	for _, it := range hr.History {
+		if !strings.HasPrefix(it.Filename, modulePrefix[module]) {
+			continue
+		}
+		return &releaseMeta{
+			Version:   it.Version,
+			Filename:  it.Filename,
+			URL:       it.Download,
+			SHA256:    it.SHA256,
+			Size:      it.Size,
+			Updated:   it.Updated,
+			Changelog: it.Changelog,
+		}, nil
 	}
-	return &m, nil
+	return nil, fmt.Errorf("工作区 %s 中没有 %s 前缀的发布文件", ws, modulePrefix[module])
 }
 
 // checkModule 检查单模块更新

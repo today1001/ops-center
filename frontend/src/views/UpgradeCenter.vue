@@ -7,11 +7,24 @@
       </template>
       <div class="config-row">
         <span class="cfg-label">升级源</span>
-        <el-input v-model="cfg.source" placeholder="http://10.172.66.61:15800 或 local:/path" style="width: 340px" />
+        <el-input v-model="cfg.source" placeholder="http://10.172.66.61:15801 或 local:/path" style="width: 340px" />
         <span class="cfg-label">检查间隔</span>
         <el-input-number v-model="cfg.interval_minutes" :min="10" :max="10080" :step="10" style="width: 140px" />
         <span class="unit">分钟</span>
         <el-button type="primary" :loading="savingCfg" @click="saveConfig">保存配置</el-button>
+      </div>
+      <div class="config-row" style="margin-top: 10px">
+        <span class="cfg-label">工作区</span>
+        <el-input v-model="cfg.ws_backend" size="small" style="width: 150px" placeholder="backend">
+          <template #prepend>backend</template>
+        </el-input>
+        <el-input v-model="cfg.ws_frontend" size="small" style="width: 150px" placeholder="frontend">
+          <template #prepend>frontend</template>
+        </el-input>
+        <el-input v-model="cfg.ws_mcp" size="small" style="width: 150px" placeholder="mcp">
+          <template #prepend>mcp</template>
+        </el-input>
+        <span class="config-tip">发布文件按前缀区分：ops-center-*/frontend-*/mcp-server-*</span>
       </div>
       <div class="config-tip">
         升级源对接更新分发系统的工作区 oc-backend / oc-frontend / oc-mcp；local: 模式从服务器本地目录读取测试包。
@@ -95,7 +108,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { upgradeAPI } from '../api'
 
-const cfg = ref({ source: '', interval_minutes: 60 })
+const cfg = ref({ source: '', interval_minutes: 60, ws_backend: '', ws_frontend: '', ws_mcp: '' })
 const modules = ref([])
 const logs = ref([])
 const savingCfg = ref(false)
@@ -114,7 +127,13 @@ const loadAll = async () => {
   loadingLogs.value = true
   try {
     const st = await upgradeAPI.status()
-    cfg.value = { source: st.source, interval_minutes: st.interval_minutes }
+    cfg.value = {
+      source: st.source,
+      interval_minutes: st.interval_minutes,
+      ws_backend: st.workspaces?.backend || '',
+      ws_frontend: st.workspaces?.frontend || '',
+      ws_mcp: st.workspaces?.mcp || ''
+    }
     modules.value = st.modules || []
     const lg = await upgradeAPI.logs()
     logs.value = lg.logs || []
@@ -130,7 +149,12 @@ const saveConfig = async () => {
   try {
     await upgradeAPI.config({
       source: cfg.value.source,
-      interval_minutes: cfg.value.interval_minutes
+      interval_minutes: cfg.value.interval_minutes,
+      workspaces: {
+        backend: cfg.value.ws_backend,
+        frontend: cfg.value.ws_frontend,
+        mcp: cfg.value.ws_mcp
+      }
     })
     ElMessage.success('配置已保存')
   } catch (e) {

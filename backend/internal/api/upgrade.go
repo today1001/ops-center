@@ -21,9 +21,14 @@ func GetUpgradeStatusHandler(c *gin.Context) {
 		statuses = []services.UpgradeStatus{}
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"source":            services.GetUpgradeSource(db),
-		"interval_minutes":  services.GetUpgradeInterval(db),
-		"modules":           statuses,
+		"source":           services.GetUpgradeSource(db),
+		"interval_minutes": services.GetUpgradeInterval(db),
+		"workspaces": gin.H{
+			"backend":  services.GetUpgradeWorkspace(db, "backend"),
+			"frontend": services.GetUpgradeWorkspace(db, "frontend"),
+			"mcp":      services.GetUpgradeWorkspace(db, "mcp"),
+		},
+		"modules": statuses,
 	})
 }
 
@@ -33,7 +38,8 @@ func SetUpgradeConfigHandler(c *gin.Context) {
 	var req struct {
 		Source          *string           `json:"source"`
 		IntervalMinutes *int              `json:"interval_minutes"`
-		Policies        map[string]string `json:"policies"` // {backend: auto|manual|off, ...}
+		Policies        map[string]string `json:"policies"`   // {backend: auto|manual|off, ...}
+		Workspaces      map[string]string `json:"workspaces"` // {backend: oc-backend, ...}
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
@@ -64,6 +70,15 @@ func SetUpgradeConfigHandler(c *gin.Context) {
 		switch mod {
 		case "backend", "frontend", "mcp":
 			services.SetPolicy(db, mod, pol)
+		}
+	}
+	for mod, ws := range req.Workspaces {
+		if ws == "" {
+			continue
+		}
+		switch mod {
+		case "backend", "frontend", "mcp":
+			services.SetWorkspace(db, mod, ws)
 		}
 	}
 
