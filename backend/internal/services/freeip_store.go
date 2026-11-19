@@ -3,6 +3,7 @@ package services
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -54,6 +55,15 @@ func EnsureFreeIPTables(db *sql.DB) error {
 		if _, err := db.Exec(t); err != nil {
 			return err
 		}
+	}
+	// 明细表补充主机探测列（老表已存在时 ADD COLUMN 会报 duplicate，忽略即可）
+	for _, col := range []string{
+		"ALTER TABLE free_ip_records ADD COLUMN hostname TEXT",
+		"ALTER TABLE free_ip_records ADD COLUMN os_guess TEXT",
+		"ALTER TABLE free_ip_records ADD COLUMN ttl INTEGER",
+		"ALTER TABLE free_ip_records ADD COLUMN ports TEXT",
+	} {
+		db.Exec(col) // 已存在列时报错，忽略
 	}
 	return nil
 }
@@ -110,13 +120,14 @@ func SaveScanToDB(db *sql.DB, scan *FreeIPScan, trigger string) (int64, error) {
 		return 0, err
 	}
 
-	stmt, err := tx.Prepare(`INSERT INTO free_ip_records (scan_id, ip, subnet, mac) VALUES (?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(`INSERT INTO free_ip_records
+		(scan_id, ip, subnet, mac, hostname, os_guess, ttl, ports) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
 	for _, f := range scan.Free {
-		if _, err := stmt.Exec(scanID, f.IP, f.Subnet, f.MAC); err != nil {
+		if _, err := stmt.Exec(scanID, f.IP, f.Subnet, f.MAC, f.Hostname, f.OS, f.TTL, f.Ports); err != nil {
 			return 0, err
 		}
 	}
@@ -181,10 +192,15 @@ type FreeIPRecord struct {
 	IP        string `json:"ip"`
 	Subnet    string `json:"subnet"`
 	MAC       string `json:"mac"`
+	Hostname  string `json:"hostname"`
+	OS        string `json:"os"`
+	TTL       int    `json:"ttl"`
+	Ports     string `json:"ports"`
 	ScannedAt string `json:"scanned_at"`
 }
 
-// GetScanRecords 取某次扫描的空闲 IP 明细；scanID=0 取最新一次
+// GetScanRecords 取某次扫描的空闲 IP 明细；scanID=0 取最新一次。
+// 排序按 IP 尾段数值（Go 侧排序，SQL 的 ORDER BY ip 是字典序会把 .218 排到 .3 前面）
 func GetScanRecords(db *sql.DB, scanID int64) ([]FreeIPRecord, error) {
 	if scanID <= 0 {
 		err := db.QueryRow("SELECT COALESCE(MAX(id), 0) FROM free_ip_scans").Scan(&scanID)
@@ -192,8 +208,9 @@ func GetScanRecords(db *sql.DB, scanID int64) ([]FreeIPRecord, error) {
 			return []FreeIPRecord{}, nil
 		}
 	}
-	rows, err := db.Query(`SELECT id, scan_id, ip, COALESCE(subnet,''), COALESCE(mac,''), scanned_at
-		FROM free_ip_records WHERE scan_id = ? ORDER BY ip`, scanID)
+	rows, err := db.Query(`SELECT id, scan_id, ip, COALESCE(subnet,''), COALESCE(mac,''),
+		COALESCE(hostname,''), COALESCE(os_guess,''), COALESCE(ttl,0), COALESCE(ports,''), scanned_at
+		FROM free_ip_records WHERE scan_id = ?`, scanID)
 	if err != nil {
 		return nil, err
 	}
@@ -201,12 +218,23 @@ func GetScanRecords(db *sql.DB, scanID int64) ([]FreeIPRecord, error) {
 	var out []FreeIPRecord
 	for rows.Next() {
 		var r FreeIPRecord
-		if err := rows.Scan(&r.ID, &r.ScanID, &r.IP, &r.Subnet, &r.MAC, &r.ScannedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.ScanID, &r.IP, &r.Subnet, &r.MAC, &r.Hostname, &r.OS, &r.TTL, &r.Ports, &r.ScannedAt); err != nil {
 			continue
 		}
 		out = append(out, r)
 	}
+	sortIPRecords(out)
 	return out, nil
+}
+
+// sortIPRecords 按网段分组、组内按 IP 尾段数值排序
+func sortIPRecords(rs []FreeIPRecord) {
+	sort.Slice(rs, func(i, j int) bool {
+		if rs[i].Subnet != rs[j].Subnet {
+			return rs[i].Subnet < rs[j].Subnet
+		}
+		return ipLess(rs[i].IP, rs[j].IP)
+	})
 }
 
 // GetLastScanTime 最近一次扫描时间（含手动与定时）

@@ -3,12 +3,15 @@ package services
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/binary"
 	"fmt"
 	"net"
 	"os/exec"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +23,11 @@ type FreeIP struct {
 	Subnet     string `json:"subnet"`
 	Online     bool   `json:"online"`
 	MAC        string `json:"mac,omitempty"`
-	Registered bool   `json:"registered"` // 已登记在服务器管理中
+	Hostname   string `json:"hostname,omitempty"` // NetBIOS/PTR 反查的主机名
+	OS         string `json:"os,omitempty"`       // Windows / Linux / 其他（TTL+端口指纹判定）
+	TTL        int    `json:"ttl,omitempty"`      // ping 回包 TTL
+	Ports      string `json:"ports,omitempty"`    // 在线时探测到的开放端口，如 "22,445"
+	Registered bool   `json:"registered"`         // 已登记在服务器管理中
 	ServerID   int    `json:"server_id,omitempty"`
 	ServerName string `json:"server_name,omitempty"`
 	Status     string `json:"status,omitempty"`
@@ -44,6 +51,18 @@ const freeIPMaxPerSubnet = 4096
 
 // 扫描结果缓存时长（秒）。同一页面反复打开不必重复发包
 const freeIPCacheSeconds = 90
+
+// job 一个待探测的候选 IP
+type job struct {
+	ip     string
+	subnet string
+}
+
+// pingResult 单个 IP 的 ping 结果（在线状态 + 回包 TTL）
+type pingResult struct {
+	online bool
+	ttl    int
+}
 
 var (
 	freeIPMu    sync.Mutex
@@ -152,10 +171,6 @@ func GetFreeIPs(db *sql.DB, subnets []string, force bool) (*FreeIPScan, error) {
 	}
 
 	// 枚举候选：网段内所有排除已登记后的地址
-	type job struct {
-		ip     string
-		subnet string
-	}
 	var jobs []job
 	skipped := 0
 	for _, sub := range subnets {
@@ -172,8 +187,8 @@ func GetFreeIPs(db *sql.DB, subnets []string, force bool) (*FreeIPScan, error) {
 		}
 	}
 
-	// 并发 ping
-	online := make([]bool, len(jobs))
+	// 并发 ping（顺带抓回包 TTL，用于系统判定）
+	results := make([]pingResult, len(jobs))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 128)
 	for i := range jobs {
@@ -182,12 +197,23 @@ func GetFreeIPs(db *sql.DB, subnets []string, force bool) (*FreeIPScan, error) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			online[i] = pingIPFast(jobs[i].ip)
+			results[i].online, results[i].ttl = pingWithTTL(jobs[i].ip)
 		}(i)
 	}
 	wg.Wait()
 
+	// 给 ARP 学习留一点回填时间，MAC 才拿得全
+	time.Sleep(500 * time.Millisecond)
 	macs := neighTable()
+
+	// 在线机器做主机探测：端口指纹 + NetBIOS/PTR 主机名 + 系统判定
+	var onlineIdx []int
+	for i := range jobs {
+		if results[i].online {
+			onlineIdx = append(onlineIdx, i)
+		}
+	}
+	hostInfo := probeHosts(onlineIdx, jobs, results)
 
 	res := &FreeIPScan{
 		Subnets:    subnets,
@@ -196,15 +222,18 @@ func GetFreeIPs(db *sql.DB, subnets []string, force bool) (*FreeIPScan, error) {
 		Free:       []FreeIP{},
 		Known:      []FreeIP{},
 	}
-	for i, j := range jobs {
-		if !online[i] {
-			continue
-		}
+	for _, i := range onlineIdx {
+		j := jobs[i]
+		hi := hostInfo[j.ip]
 		res.Free = append(res.Free, FreeIP{
-			IP:      j.ip,
-			Subnet:  j.subnet,
-			Online:  true,
-			MAC:     macs[j.ip],
+			IP:       j.ip,
+			Subnet:   j.subnet,
+			Online:   true,
+			MAC:      macs[j.ip],
+			Hostname: hi.hostname,
+			OS:       hi.os,
+			TTL:      results[i].ttl,
+			Ports:    hi.ports,
 			Services: 0,
 		})
 	}
@@ -384,6 +413,226 @@ func pingIPFast(ip string) bool {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "ping", "-c", "1", "-W", "1", ip)
 	return cmd.Run() == nil
+}
+
+// pingWithTTL 单次 ping 并解析回包 TTL。
+// TTL 是系统类型的主要指纹：Windows 默认 128，Linux/Unix 默认 64。
+func pingWithTTL(ip string) (bool, int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ping", "-c", "1", "-W", "1", ip)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// ping 不通也可能有 ttl 输出（本机网关代理），以输出为准
+		if m := ttlRe.FindSubmatch(out); m != nil {
+			ttl, _ := strconv.Atoi(string(m[1]))
+			return false, ttl
+		}
+		return false, 0
+	}
+	if m := ttlRe.FindSubmatch(out); m != nil {
+		ttl, _ := strconv.Atoi(string(m[1]))
+		return true, ttl
+	}
+	return true, 0
+}
+
+var ttlRe = regexp.MustCompile(`ttl=(\d+)`)
+
+// hostDetail 单台在线主机的深度探测结果
+type hostDetail struct {
+	hostname string
+	os       string
+	ports    string
+}
+
+// probePorts 在线机器的指纹端口探测：
+// 22=SSH(Linux)、139/445/3389=Windows 族、443/8006=TLS 服务（抓证书 CN 用的）
+func probePorts(ip string) []string {
+	probe := []struct {
+		port int
+		name string
+	}{{22, "22"}, {139, "139"}, {445, "445"}, {3389, "3389"}, {443, "443"}, {8006, "8006"}}
+	var open []string
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, p := range probe {
+		wg.Add(1)
+		go func(port int, name string) {
+			defer wg.Done()
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), 600*time.Millisecond)
+			if err == nil {
+				conn.Close()
+				mu.Lock()
+				open = append(open, name)
+				mu.Unlock()
+			}
+		}(p.port, p.name)
+	}
+	wg.Wait()
+	sort.Strings(open)
+	return open
+}
+
+// netbiosName 用 nmblookup -A 查 NetBIOS 主机名。
+// 真实输出形如 "HTNAS <00> - B <ACTIVE>"，只取第一个 <00> 且 ACTIVE 的名字。
+// 对虚拟网段/被防火墙挡掉 UDP137 的机器返回空。
+func netbiosName(ip string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "nmblookup", "-A", ip).Output()
+	if err != nil && len(out) == 0 {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, "<00>") {
+			continue
+		}
+		if !strings.Contains(line, "ACTIVE") && !strings.Contains(line, "REGISTERED") {
+			continue
+		}
+		if strings.Contains(line, "<GROUP>") {
+			continue // 工作组名不是主机名
+		}
+		f := strings.Fields(line)
+		if len(f) >= 1 && f[0] != "" {
+			return f[0]
+		}
+	}
+	return ""
+}
+
+// tlsCommonName 对开放 TLS 的端口握手抓证书 CN（PVE/ESXi 等设备证书 CN 即主机名）
+func tlsCommonName(ip string, ports []string) string {
+	for _, p := range ports {
+		if p != "443" && p != "8006" && p != "8443" {
+			continue
+		}
+		port, _ := strconv.Atoi(p)
+		host := fmt.Sprintf("%s:%d", ip, port)
+		conn, err := net.DialTimeout("tcp", host, 1500*time.Millisecond)
+		if err != nil {
+			continue
+		}
+		cfg := &tls.Config{InsecureSkipVerify: true}
+		tlsConn := tls.Client(conn, cfg)
+		hsCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err = tlsConn.HandshakeContext(hsCtx)
+		cancel()
+		if err == nil {
+			certs := tlsConn.ConnectionState().PeerCertificates
+			if len(certs) > 0 && certs[0].Subject.CommonName != "" {
+				cn := certs[0].Subject.CommonName
+				conn.Close()
+				return cn
+			}
+		}
+		conn.Close()
+	}
+	return ""
+}
+
+// ptrName 反向 DNS 解析主机名（依赖内网 DNS 有 PTR 记录，无记录返回空）
+func ptrName(ip string) string {
+	type res struct {
+		names []string
+	}
+	ch := make(chan res, 1)
+	go func() {
+		names, _ := net.LookupAddr(ip)
+		ch <- res{names}
+	}()
+	select {
+	case r := <-ch:
+		if len(r.names) > 0 {
+			return strings.TrimSuffix(r.names[0], ".")
+		}
+		return ""
+	case <-time.After(2 * time.Second):
+		return ""
+	}
+}
+
+// classifyOS TTL + 端口指纹 + NetBIOS 综合判定系统类型
+func classifyOS(ttl int, ports []string, netbios string) string {
+	p := map[string]bool{}
+	for _, s := range ports {
+		p[s] = true
+	}
+	winEvidence := netbios != "" || p["445"] || p["139"] || p["3389"]
+	linuxEvidence := p["22"]
+
+	switch {
+	case winEvidence && !linuxEvidence:
+		return "Windows"
+	case linuxEvidence && !winEvidence:
+		return "Linux"
+	case linuxEvidence && winEvidence:
+		// 两者都有：看 TTL 定夺（128 族 → Windows）
+		if ttl >= 128 {
+			return "Windows"
+		}
+		return "Linux"
+	case ttl >= 128:
+		return "Windows"
+	case ttl >= 33 && ttl < 128:
+		return "Linux"
+	default:
+		return "其他"
+	}
+}
+
+// probeOneHost 单台在线主机的完整探测
+func probeOneHost(ip string, ttl int) hostDetail {
+	ports := probePorts(ip)
+
+	// NetBIOS 名：Windows 专属证据（注意与最终 hostname 区分，TLS CN/PTR 不算）
+	netbios := ""
+	// 只对 Windows 嫌疑机跑 nmblookup（Linux 上没有 NetBIOS，白等 2 秒）
+	winSuspect := ttl >= 128 || len(ports) == 0
+	for _, p := range ports {
+		if p == "445" || p == "139" || p == "3389" {
+			winSuspect = true
+		}
+	}
+	if winSuspect {
+		netbios = netbiosName(ip)
+	}
+
+	// 主机名优先级：NetBIOS（Windows/群晖等） > TLS 证书 CN（PVE/ESXi） > PTR 反查
+	hostname := netbios
+	if hostname == "" {
+		hostname = tlsCommonName(ip, ports)
+	}
+	if hostname == "" {
+		hostname = ptrName(ip)
+	}
+	os := classifyOS(ttl, ports, netbios)
+
+	pstr := strings.Join(ports, ",")
+	return hostDetail{hostname: hostname, os: os, ports: pstr}
+}
+
+// probeHosts 对全部在线 IP 并发做深度探测
+func probeHosts(onlineIdx []int, jobs []job, results []pingResult) map[string]hostDetail {
+	out := make(map[string]hostDetail, len(onlineIdx))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 32)
+	for _, i := range onlineIdx {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			d := probeOneHost(jobs[i].ip, results[i].ttl)
+			mu.Lock()
+			out[jobs[i].ip] = d
+			mu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+	return out
 }
 
 // neighTable 读一次内核邻居表，给在线 IP 补上 MAC
