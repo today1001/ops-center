@@ -8,6 +8,9 @@ import (
 	"ops-center/internal/services"
 )
 
+// BuildVersion 发布时 -ldflags 注入，如 -X main.BuildVersion=1.5.0
+var BuildVersion = "1.5.0"
+
 func main() {
 	// 初始化数据库
 	if err := models.InitDB(); err != nil {
@@ -23,6 +26,15 @@ func main() {
 		log.Printf("Warning: 初始化空闲IP扫描表失败: %v", err)
 	}
 	go services.StartFreeIPScanLoop(models.GetDB())
+
+	// 自动升级：建表/目录 + 处理上次升级的挂起标记（确认成功或超时回滚）+ 检查循环
+	if err := services.EnsureUpgradeTables(models.GetDB()); err != nil {
+		log.Printf("Warning: 初始化升级日志表失败: %v", err)
+	}
+	services.EnsureUpgradeDirs()
+	services.BackendVersion = BuildVersion
+	services.HandlePendingUpgrade(models.GetDB())
+	go services.RunAutoUpgrade(models.GetDB())
 
 	// 启动API服务器
 	api.Run()

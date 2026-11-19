@@ -172,6 +172,15 @@ func Run() {
 			admin.DELETE("/users/:id/servers/:sid", RevokeUserServerHandler)
 			admin.GET("/audit", GetAuditLogsHandler)
 		}
+
+		// 系统升级中心（仅管理员）
+		upgrade := auth.Group("/system/upgrade", RequireRolesMW(models.RoleAdmin))
+		{
+			upgrade.GET("/status", GetUpgradeStatusHandler)
+			upgrade.POST("/config", SetUpgradeConfigHandler)
+			upgrade.POST("/run", RunUpgradeHandler)
+			upgrade.GET("/logs", GetUpgradeLogsHandler)
+		}
 	}
 
 	// 救援控制台页面（不依赖前端构建产物，主界面白屏时也可用）

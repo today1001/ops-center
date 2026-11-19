@@ -90,6 +90,10 @@
             <el-icon><Tickets /></el-icon>
             <span>访问日志</span>
           </el-menu-item>
+          <el-menu-item index="/upgrade">
+            <el-icon><UploadFilled /></el-icon>
+            <span>系统升级</span>
+          </el-menu-item>
         </template>
       </el-menu>
     </el-aside>
@@ -175,7 +179,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Monitor, Connection, Operation, Setting, Tools,
   MagicStick, User, ArrowDown, FolderOpened,
-  Sunny, Moon, Position, Document, Tickets
+  Sunny, Moon, Position, Document, Tickets, UploadFilled
 } from '@element-plus/icons-vue'
 import { themeStore, actualTheme, toggleTheme, setTheme } from '../theme.js'
 import { localeStore, availableLocales, toggleLocale, setLocale } from '../locale.js'

@@ -131,6 +131,12 @@ const routes = [
         name: 'AuditLogs',
         component: () => import('../views/AuditLogs.vue'),
         meta: { title: '访问日志', adminOnly: true }
+      },
+      {
+        path: 'upgrade',
+        name: 'UpgradeCenter',
+        component: () => import('../views/UpgradeCenter.vue'),
+        meta: { title: '系统升级', adminOnly: true }
       }
     ]
   }

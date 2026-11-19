@@ -160,4 +160,12 @@ export const auditAPI = {
   list: (params) => api.get('/admin/audit', { params })
 }
 
+// 系统升级中心 API（仅管理员）
+export const upgradeAPI = {
+  status: () => api.get('/system/upgrade/status', { timeout: 60000 }),
+  config: (data) => api.post('/system/upgrade/config', data),
+  run: (data) => api.post('/system/upgrade/run', data, { timeout: 120000 }),
+  logs: () => api.get('/system/upgrade/logs')
+}
+
 export default api
